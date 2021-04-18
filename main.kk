@@ -18,7 +18,19 @@ fun main() : <console, ndet> int {
     println(".intel_syntax noprefix")
     println(".global main")
     println("main:")
-    println("  mov rax, " ++ input)
+    println("  xor rax, rax")
+
+    input.split("+").foreach fn(term) {
+        match (term.split("-")) {
+            Cons(term, terms) -> {
+                println("  add rax, " ++ term)
+                with term = terms.foreach
+                println("  sub rax, " ++ term)
+            }
+            _ -> ()
+        }
+    }
+
     println("  ret")
     0
 }
