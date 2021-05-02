@@ -1,11 +1,13 @@
 #!/bin/bash
 
+cc="zig cc -Wno-unused-command-line-argument"
+
 assert() {
 	expected="$1"
 	input="$2"
 
 	./out/kleincc "$input" > tmp.s
-	clang -o tmp tmp.s
+	$cc -o tmp tmp.s
 	./tmp
 	actual="$?"
 
@@ -20,5 +22,7 @@ assert() {
 assert 7 7
 assert 45 45
 assert 5 '3-4+7-1'
+assert 41 ' 12 + 34 - 5 '
+assert 11 ' 34 - 7-16 '
 
 echo ok
