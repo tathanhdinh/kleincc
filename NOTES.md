@@ -1,4 +1,4 @@
-### Random thoughts
+### Idle thoughts
 
 - 15/04/2021 (commits: [f8954de](https://github.com/tathanhdinh/kleincc/commit/fd4ffdd447f1aae4288cb434549cee6bf492727a))
   - To get the "unprocessed" command line (i.e. the corresponding of C's `argv`), we can use the function [`get-argv`](https://koka-lang.github.io/koka/doc/std_os_env-source.html#get_argv) which is in the module `std/os/env`.
@@ -50,7 +50,7 @@
         println("  sub rax" ++ term)
       }
       ```
-- 02/05/2021 (commits: )
+- 02/05/2021 (commits: [dd943c5](https://github.com/tathanhdinh/kleincc/commit/dd943c565bd047860341710114161dbc169b8e52))
     - In `chibicc`, tokens are stored in a *linked list*:
       ```c
       struct Token {
@@ -104,6 +104,9 @@
       Some languages eliminate completely exceptions (e.g. Rust), any error handler must be local, then such a simple expression like `i + f()` must be rewritten (may be this is a reason for which error handling in Rust is quite painful, IMHO).
 
       So the naive idea of composing type with effect does not work well, effect is different (it probably needs another treatment).
+
+- 03/05/2021 (commits: [])
+    - I did not find the function which returns the owner (of type `string`) of a string slice `s` (of type `sslice`) then I used a trick `s.before().before().after().string()`: the first `before` returns the slice before `s` (in the owner), so the second `before` returns simply the empty slice at the beginning of the owner string, then the last `after` return the slice of the entire string.
 
 ### References
 - [1] David K. Gifford, Pierre Jouvelot, Mark A. Sheldon, James W. O'Toole. Report on the FX-91 Programming Language.

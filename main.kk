@@ -6,51 +6,68 @@ type token-kind {
   TokEof          // end-of-file markers
 }
 
-// token type
+// Token type
 struct token {
   kind : token-kind
   value : maybe<int> = Nothing
   literal : maybe<sslice> = Nothing
 }
 
-// reports an error and exit
+// Reports an error
 fun error( msg : string ) : exn a {
   throw("error: " ++ msg)
 }
 
-// consumes the current token if it maches `op`
+// Report an error with location information.
+fun error_at( msg : string, literal : ?sslice ) : exn a {
+  val msg = match (literal) {
+    None -> "error: " ++ msg
+    Optional(literal) -> {
+      val before-ltr = literal.before()
+      val input = before-ltr.before().after() // before of before is an empty, after this empty is the slice of the entire string
+      input.string() ++ "\n" ++ " ".repeat(before-ltr.count()) ++ "^ error: " ++ msg
+    }
+  }
+
+  throw(msg)
+}
+
+// Consume the current token if it maches `op`
 fun consume( op : char, tokens : list<token> ) : (bool, list<token>) {
   match (tokens) {
-    Cons(Token(kind = TokReserved, literal = Just(literal), value = _), next-tokens) ->
+    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
       if (op.string() == literal.string()) then (True, next-tokens) else (False, tokens)
     _ -> (False, tokens)
   }
 }
 
+// Ensure that the current token is `op`
 fun expect( op : char, tokens : list<token> ) : <exn> list<token> {
   val op = op.string()
   match (tokens) {
-    Cons(Token(kind = TokReserved, literal = Just(literal), value = _), next-tokens) ->
-        if (op == literal.string()) then next-tokens else error("expected " ++ op)
-    _ -> error("expected " ++ op)
+    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
+        if (op == literal.string()) then next-tokens else error_at("expected " ++ op, literal)
+    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error_at("expected " ++ op, literal)
   }
 }
 
+// Ensure that the current token is TokNumber
 fun expect-number( tokens : list<token> ) : <exn> (int, list<token>) {
   match (tokens) {
-    Cons(Token(kind = TokNumber, value = Just(value), literal = Just(_)), next-tokens) -> (value, next-tokens)
-    _ -> error("number token expected")
+    Cons(Token(TokNumber, value = Just(value), literal = Just(_)), next-tokens) -> (value, next-tokens)
+    Cons(Token(kind = _, value = _, literal = Just(literal)), _) -> error_at("expected a number", literal)
   }
 }
 
 fun at-eof( tokens : list<token> ) : bool {
   match (tokens) {
-    Cons(Token(kind = TokEof, value = _, literal = _), _) -> True
+    Cons(Token(TokEof, value = _, literal = _), _) -> True
     Cons(_) -> False
     _ -> True
   }
 }
 
+// Tokenize input and returns tokens
 fun tokenize( input : string ) : <div, exn> list<token> {
   var curr-pos := 0
   var num-tok-len := 0
@@ -69,23 +86,23 @@ fun tokenize( input : string ) : <div, exn> list<token> {
         elif (c == '+' || c == '-' || c == ' ') {
           if (num-tok-len > 0) {
             val tok-ltr = input.first(num-tok-len).advance(curr-pos - num-tok-len)
-            val num-tok = Token(kind = TokNumber, value = Just(num-tok-val), literal = Just(tok-ltr))
-
+            val num-tok = Token(TokNumber, Just(num-tok-val), Just(tok-ltr))
             tokens := Cons(num-tok, tokens)
           }
 
           // Punctuator
           if (c == '-' || c == '+') {
             val tok-ltr = input.first(1).advance(curr-pos)
-            val punc-tok = Token(kind = TokReserved, literal = Just(tok-ltr))
-
+            val punc-tok = Token(TokReserved, literal = Just(tok-ltr))
             tokens := Cons(punc-tok, tokens)
           }
 
           num-tok-len := 0
           num-tok-val := 0
         }
-        else error("invalid token")
+        else {
+          error_at("expected a number", input.last(input.count() - curr-pos))
+        }
 
         rest-of-input := s
         curr-pos := curr-pos + 1
@@ -96,8 +113,7 @@ fun tokenize( input : string ) : <div, exn> list<token> {
       _ -> {
         if (num-tok-len > 0) {
           val tok-ltr = input.first(num-tok-len).advance(curr-pos - num-tok-len)
-          val num-tok = Token(kind = TokNumber, value = Just(num-tok-val), literal = Just(tok-ltr))
-
+          val num-tok = Token(TokNumber, Just(num-tok-val), Just(tok-ltr))
           tokens := Cons(num-tok, tokens)
         }
 
