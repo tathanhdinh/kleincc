@@ -28,6 +28,8 @@ assert 35  '19 + 8 *2'
 assert 220 '20 * (5 + 6)'
 assert 4   '(3+5)/2'
 assert 92 '2 *(5+ 6 * 8 - 7)'
+assert 10 '- - +10'
+assert 14 '10 -- +4'
 
 
 echo ok

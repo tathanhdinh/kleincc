@@ -158,7 +158,7 @@ struct node {
 }
 
 // expr = mul-or-div ('+' mul-or-div | '-' mul-or-div)
-fun expr( tokens : list<token> ) : <div, exn, console> (node, list<token>) {
+fun expr( tokens : list<token> ) : <div, exn> (node, list<token>) {
   val (lhs-md-node, tmp-tokens) = mul-or-div(tokens)
   var next-tokens := tmp-tokens
   var new-node := lhs-md-node
@@ -187,9 +187,9 @@ fun expr( tokens : list<token> ) : <div, exn, console> (node, list<token>) {
   (new-node, next-tokens)
 }
 
-// mul-or-div = primary ('*' primary | '/' primary)
-fun mul-or-div( tokens : list<token> ) : <div, exn, console> (node, list<token>) {
-  val (lhs-prim-node, toks) = primary(tokens)
+// mul-or-div = unary ('*' unary | '/' unary)
+fun mul-or-div( tokens : list<token> ) : <div, exn> (node, list<token>) {
+  val (lhs-prim-node, toks) = unary(tokens)
   var next-tokens := toks
   var new-node := lhs-prim-node
 
@@ -197,14 +197,14 @@ fun mul-or-div( tokens : list<token> ) : <div, exn, console> (node, list<token>)
   while { !neither-mul-nor-div && !at-eof(next-tokens) } {
     match (consume('*', next-tokens)) {
       Just(toks) -> {
-        val (rhs-prim-node, toks) = primary(toks)
+        val (rhs-prim-node, toks) = unary(toks)
         next-tokens := toks
         new-node := Node(NdMul, lhs = Just(new-node), rhs = Just(rhs-prim-node))
       }
 
       _ -> match (consume('/', next-tokens)) {
         Just(toks) -> {
-          val (rhs-prim-node, toks) = primary(toks)
+          val (rhs-prim-node, toks) = unary(toks)
           next-tokens := toks
           new-node := Node(NdDiv, lhs = Just(new-node), rhs = Just(rhs-prim-node))
         }
@@ -217,8 +217,28 @@ fun mul-or-div( tokens : list<token> ) : <div, exn, console> (node, list<token>)
   (new-node, next-tokens)
 }
 
+// unary = ('+' | '-')? unary
+//       | primary
+fun unary ( tokens : list<token> ) : <exn, div> (node, list<token>) {
+  match (consume('+', tokens)) {
+    Just(toks) -> unary(toks)
+
+    _ -> {
+      match (consume('-', tokens)) {
+        Just(toks) -> {
+          val (rhs-node, toks) = unary(toks)
+          val new-node = Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(rhs-node))
+          (new-node, toks)
+        }
+
+        _ -> primary(tokens)
+      }
+    }
+  }
+}
+
 // primary = '(' expr ')' | num
-fun primary( tokens : list<token> ) : <div, exn, console> (node, list<token>) {
+fun primary( tokens : list<token> ) : <div, exn> (node, list<token>) {
   match (consume('(', tokens)) {
     Just(toks) -> {
       val (expr-node, toks) = expr(toks)
