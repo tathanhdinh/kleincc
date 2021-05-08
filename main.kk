@@ -37,21 +37,20 @@ fun error-at( msg : string, optional-literal : ?sslice ) : exn a {
 }
 
 // Consume the current token if it maches `op`
-fun consume( op : char, tokens : list<token> ) : maybe<list<token>> {
+fun consume( op : string, tokens : list<token> ) : maybe<list<token>> {
   match (tokens) {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
-      if (op.string() == literal.string()) then Just(next-tokens) else Nothing
+      if (op == literal.string()) then Just(next-tokens) else Nothing
     _ -> Nothing
   }
 }
 
 // Ensure that the current token is `op`
-fun expect( op : char, tokens : list<token> ) : <exn> list<token> {
-  val op-str = op.string()
+fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
   match (tokens) {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
-        if (op-str == literal.string()) then next-tokens else error-at("expected " ++ op-str, literal)
-    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at("expected " ++ op-str, literal)
+        if (op == literal.string()) then next-tokens else error-at("expected " ++ op, literal)
+    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at("expected " ++ op, literal)
   }
 }
 
@@ -98,7 +97,7 @@ fun tokenize( input : string ) : <div, exn> list<token> {
             tokens := Cons(num-tok, tokens)
           }
 
-          // Punctuator
+          // Single-letter punctuator
           if (c.is-punct()) {
             val tok-ltr = input.first(1).advance(curr-pos)
             val punc-tok = Token(TokReserved, literal = Just(tok-ltr))
@@ -165,14 +164,14 @@ fun expr( tokens : list<token> ) : <div, exn> (node, list<token>) {
 
   var neither-add-nor-sub := False
   while { !neither-add-nor-sub && !at-eof(next-tokens) } {
-    match (consume('+', next-tokens)) {
+    match (consume("+", next-tokens)) {
       Just(toks) -> {
         val (rhs-md-node, toks) = mul-or-div(toks)
         next-tokens := toks
         new-node := Node(NdAdd, lhs = Just(new-node), rhs = Just(rhs-md-node))
       }
 
-      _ -> match (consume('-', next-tokens)) {
+      _ -> match (consume("-", next-tokens)) {
         Just(toks) -> {
           val (rhs-md-node, toks) = mul-or-div(toks)
           next-tokens := toks
@@ -195,14 +194,14 @@ fun mul-or-div( tokens : list<token> ) : <div, exn> (node, list<token>) {
 
   var neither-mul-nor-div := False
   while { !neither-mul-nor-div && !at-eof(next-tokens) } {
-    match (consume('*', next-tokens)) {
+    match (consume("*", next-tokens)) {
       Just(toks) -> {
         val (rhs-prim-node, toks) = unary(toks)
         next-tokens := toks
         new-node := Node(NdMul, lhs = Just(new-node), rhs = Just(rhs-prim-node))
       }
 
-      _ -> match (consume('/', next-tokens)) {
+      _ -> match (consume("/", next-tokens)) {
         Just(toks) -> {
           val (rhs-prim-node, toks) = unary(toks)
           next-tokens := toks
@@ -220,11 +219,11 @@ fun mul-or-div( tokens : list<token> ) : <div, exn> (node, list<token>) {
 // unary = ('+' | '-')? unary
 //       | primary
 fun unary ( tokens : list<token> ) : <exn, div> (node, list<token>) {
-  match (consume('+', tokens)) {
+  match (consume("+", tokens)) {
     Just(toks) -> unary(toks)
 
     _ -> {
-      match (consume('-', tokens)) {
+      match (consume("-", tokens)) {
         Just(toks) -> {
           val (rhs-node, toks) = unary(toks)
           val new-node = Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(rhs-node))
@@ -239,10 +238,10 @@ fun unary ( tokens : list<token> ) : <exn, div> (node, list<token>) {
 
 // primary = '(' expr ')' | num
 fun primary( tokens : list<token> ) : <div, exn> (node, list<token>) {
-  match (consume('(', tokens)) {
+  match (consume("(", tokens)) {
     Just(toks) -> {
       val (expr-node, toks) = expr(toks)
-      (expr-node, expect(')', toks))
+      (expr-node, expect(")", toks))
     }
 
     _ -> {
