@@ -108,7 +108,7 @@
 - 03/05/2021 (commits: [77801a5](https://github.com/tathanhdinh/kleincc/commit/77801a5ccbe74ae96823fab07bb407877dbfbca5))
     - I did not find the function which returns the owner (of type `string`) of a string slice `s` (of type `sslice`) then I used a trick `s.before().before().after().string()`: the first `before` returns the slice before `s` (in the owner), so the second `before` returns simply the empty slice at the beginning of the owner string, then the last `after` return the slice of the entire string.
 
-- 06/05/2021 (commits: [a5b98d4](https://github.com/tathanhdinh/kleincc/commit/a5b98d4bb5c96034368ff7157a978b7e76f8451a), [d7ead17])
+- 06/05/2021 (commits: [a5b98d4](https://github.com/tathanhdinh/kleincc/commit/a5b98d4bb5c96034368ff7157a978b7e76f8451a), [d7ead17](https://github.com/tathanhdinh/kleincc/commit/d7ead177b69b0e1d04fec2ddfb76a97b86429757))
     - Bash (and also Fish) shell seems keep the return value of the program using only 1 bytes, e.g. if the program returns 0x398 then only 0x98 is kept. That may be the reason why such a following test fails:
       ```bash
       assert 920 '20 *(5+ 6 * 8 - 7)'

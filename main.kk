@@ -1,5 +1,27 @@
 import std/os/env
 
+effect control continue<a>() : a
+
+fun unjust-or-continue( m : maybe<a> ) : continue a {
+  match (m) {
+    Just(v) -> v
+    _ -> continue()
+  }
+}
+
+// Reports an error
+fun error( msg : string ) : exn a {
+  throw("error: " ++ msg)
+}
+
+// Report an error with location information.
+fun error-at( literal : sslice, msg : string ) : exn a {
+  val before-ltr = literal.before()
+  val input = before-ltr.before().after()
+  val error-msg = input.string() ++ "\n" ++ " ".repeat(before-ltr.count()) ++ "^ error: " ++ msg
+  throw(error-msg)
+}
+
 //
 // Tokenizer
 //
@@ -17,30 +39,32 @@ struct token {
   literal : maybe<sslice> = Nothing
 }
 
-// Reports an error
-fun error( msg : string ) : exn a {
-  throw("error: " ++ msg)
-}
-
-// Report an error with location information.
-fun error-at( msg : string, optional-literal : ?sslice ) : exn a {
-  val error-msg = match (optional-literal) {
-    None -> "error: " ++ msg
-    Optional(literal) -> {
-      val before-ltr = literal.before()
-      val input = before-ltr.before().after() // before of before is an empty, after this empty is the slice of the entire string
-      input.string() ++ "\n" ++ " ".repeat(before-ltr.count()) ++ "^ error: " ++ msg
-    }
+fun show( tok : token ) : <console> string {
+  val kind = match (tok.kind) {
+    TokReserved -> "TokReserved"
+    TokNumber -> "TokNumber"
+    TokEof -> "TokEof"
   }
 
-  throw(error-msg)
+  val value = match (tok.value) {
+    Just(n) -> n.show()
+    _ -> "Nothing"
+  }
+
+  val literal = match (tok.literal) {
+    Just(s) -> s.show()
+    _ -> "Nothing"
+  }
+
+  "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
 }
 
-// Consume the current token if it maches `op`
-fun consume( op : string, tokens : list<token> ) : maybe<list<token>> {
+// Consume the current token if it matches `op`
+fun consume( op : string, tokens : list<token> ) : <console> maybe<list<token>> {
   match (tokens) {
-    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
+    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) -> {
       if (op == literal.string()) then Just(next-tokens) else Nothing
+    }
     _ -> Nothing
   }
 }
@@ -49,8 +73,8 @@ fun consume( op : string, tokens : list<token> ) : maybe<list<token>> {
 fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
   match (tokens) {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
-        if (op == literal.string()) then next-tokens else error-at("expected " ++ op, literal)
-    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at("expected " ++ op, literal)
+        if (op == literal.string()) then next-tokens else error-at(literal, "expected " ++ op)
+    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at(literal, "expected " ++ op)
   }
 }
 
@@ -58,7 +82,7 @@ fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
 fun expect-number( tokens : list<token> ) : <exn> (int, list<token>) {
   match (tokens) {
     Cons(Token(TokNumber, value = Just(num), literal = Just(_)), next-tokens) -> (num, next-tokens)
-    Cons(Token(kind = _, value = _, literal = Just(literal)), _) -> error-at("expected a number", literal)
+    Cons(Token(kind = _, value = _, literal = Just(literal)), _) -> error-at(literal, "expected a number")
   }
 }
 
@@ -70,69 +94,112 @@ fun at-eof( tokens : list<token> ) : bool {
   }
 }
 
-fun is-punct( c : char ) : bool {
-  c== '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')'
-}
-
 // Tokenize input and returns tokens
-fun tokenize( input : string ) : <div, exn> list<token> {
-  var curr-pos := 0
-  var num-tok-len := 0
-  var num-tok-val := 0
-  var tokens := Nil
+fun tokenize( input : string ) : <console, div, exn> list<token> {
+  fun first-of-length( slice, n ) {
+    val input-head = input.first(n)
+    val to-slice-distance = slice.before().count()
+    input-head.advance(to-slice-distance)
+  }
 
-  var rest-of-input := input.slice()
-  while {
-    match (rest-of-input.next()) {
-      Just((c, s)) -> {
-        // Integer literal
-        if (c.is-digit()) {
-          num-tok-val := num-tok-val * 10 + (c - '0').int()
-          num-tok-len := num-tok-len + 1
-        }
-        elif (c.is-punct() || c.is-white()) {
-          if (num-tok-len > 0) {
-            val tok-ltr = input.first(num-tok-len).advance(curr-pos - num-tok-len)
-            val num-tok = Token(TokNumber, Just(num-tok-val), Just(tok-ltr))
-            tokens := Cons(num-tok, tokens)
-          }
-
-          // Single-letter punctuator
-          if (c.is-punct()) {
-            val tok-ltr = input.first(1).advance(curr-pos)
-            val punc-tok = Token(TokReserved, literal = Just(tok-ltr))
-            tokens := Cons(punc-tok, tokens)
-          }
-
-          num-tok-len := 0
-          num-tok-val := 0
-        }
-        else {
-          error-at("invalid token", input.last(input.count() - curr-pos))
-        }
-
-        rest-of-input := s
-        curr-pos := curr-pos + 1
-
-        True
-      }
-
-      _ -> {
-        if (num-tok-len > 0) {
-          val tok-ltr = input.first(num-tok-len).advance(curr-pos - num-tok-len)
-          val num-tok = Token(TokNumber, Just(num-tok-val), Just(tok-ltr))
-          tokens := Cons(num-tok, tokens)
-        }
-
-        val eof-tok = Token(kind = TokEof)
-        tokens := Cons(eof-tok, tokens)
-
-        False
+  fun starts-with( slice : sslice, pre : string ) {
+    fun compare( slice, pre) {
+      match (slice.next(), pre.next()) {
+        (Just((cs, ss)), Just((cp, sp))) -> if (cs != cp) then Nothing else compare(ss, sp)
+        (_, Nothing) -> Just(slice)
+        _ -> Nothing
       }
     }
-  }
-  {}
 
+    match (compare(slice, pre.first(pre.count()))) {
+      Just(s) -> Just((slice.first-of-length(pre.count()), s))
+      _ -> Nothing
+    }
+  }
+
+  fun starts-with-white( slice ) {
+    match (slice.next()) {
+      Just((c, s)) -> if (c.is-white()) then Just((slice.first-of-length(1), s)) else Nothing
+      _ -> Nothing
+    }
+  }
+
+  fun starts-with-punct( slice ) {
+    fun is-punct( c ) {
+      c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>'
+    }
+
+    match (slice.next()) {
+      Just((c, s)) -> if (c.is-punct()) then Just((slice.first-of-length(1), s)) else Nothing
+      _ -> Nothing
+    }
+  }
+
+  fun starts-with-number( slice ) {
+    fun parse-number ( slice, accum ) {
+      match (slice.next()) {
+        Just((c, s)) -> if (c.is-digit()) {
+          val num = match (accum) { Just(n) -> n; _ -> 0 }
+          parse-number(s, Just(num * 10 + (c - '0').int()))
+        }
+        else (slice, accum)
+
+        _ -> (slice, accum)
+      }
+    }
+
+    val (s, n) = parse-number(slice, Nothing)
+    match (n) {
+      Just(num) -> {
+        val num-len = slice.count() - s.count()
+        Just((num, (slice.first-of-length(num-len), s)))
+      }
+      Nothing -> Nothing
+    }
+  }
+
+  fun tokenize-internal( slice : sslice, tokens ) {
+    if (slice.is-empty()) then {
+      val eof-tok = Token(TokEof, literal = Just(slice))
+      return Cons(eof-tok, tokens)
+    }
+
+    // Skip white space characters.
+    match (slice.starts-with-white()) {
+      Just((_, s)) -> return tokenize-internal(s, tokens)
+      _ -> ()
+    }
+
+    // Multi-letter punctuators
+    if (slice.starts-with("==").bool() || slice.starts-with("!=").bool() ||
+        slice.starts-with("<=").bool() || slice.starts-with(">=").bool()) {
+      val pre = slice.first-of-length(2)
+      val punct-tok = Token(TokReserved, literal = Just(pre))
+      return tokenize-internal(pre.after(), Cons(punct-tok, tokens))
+    }
+
+    // Single-letter punctuators
+    match (slice.starts-with-punct()) {
+      Just((pre, suf)) -> {
+        val punct-tok = Token(TokReserved, literal = Just(pre))
+        return tokenize-internal(suf, Cons(punct-tok, tokens))
+      }
+      _ -> ()
+    }
+
+    // Integer literals
+    match (slice.starts-with-number()) {
+      Just((n, (pre, suf))) -> {
+        val num-tok = Token(TokNumber, literal = Just(pre), value = Just(n))
+        return tokenize-internal(suf, Cons(num-tok, tokens))
+      }
+      _ -> ()
+    }
+
+    error-at(slice, "invalid token")
+  }
+
+  val tokens = tokenize-internal(input.first(input.count()), Nil)
   tokens.reverse()
 }
 
@@ -141,11 +208,15 @@ fun tokenize( input : string ) : <div, exn> list<token> {
 //
 
 type node-kind {
-  NdAdd
-  NdSub
-  NdMul
-  NdDiv
-  NdNum
+  NdAdd    // +
+  NdSub    // -
+  NdMul    // *
+  NdDiv    // /
+  NdEq     // ==
+  NdNe     // !=
+  NdLt     // <
+  NdLe     // <=
+  NdNum    // Integer
 }
 
 // AST node type
@@ -156,124 +227,229 @@ struct node {
   value : maybe<int> = Nothing
 }
 
-// expr = mul-or-div ('+' mul-or-div | '-' mul-or-div)
-fun expr( tokens : list<token> ) : <div, exn> (node, list<token>) {
-  val (lhs-md-node, tmp-tokens) = mul-or-div(tokens)
-  var next-tokens := tmp-tokens
-  var new-node := lhs-md-node
-
-  var neither-add-nor-sub := False
-  while { !neither-add-nor-sub && !at-eof(next-tokens) } {
-    match (consume("+", next-tokens)) {
-      Just(toks) -> {
-        val (rhs-md-node, toks) = mul-or-div(toks)
-        next-tokens := toks
-        new-node := Node(NdAdd, lhs = Just(new-node), rhs = Just(rhs-md-node))
-      }
-
-      _ -> match (consume("-", next-tokens)) {
-        Just(toks) -> {
-          val (rhs-md-node, toks) = mul-or-div(toks)
-          next-tokens := toks
-          new-node := Node(NdSub, lhs = Just(new-node), rhs = Just(rhs-md-node))
-        }
-
-        _ -> neither-add-nor-sub := True
-      }
-    }
+fun show( n : node ) : <div, console> string {
+  val kind = match (n.kind) {
+    NdAdd -> "+"
+    NdSub -> "-"
+    NdMul -> "*"
+    NdDiv -> "/"
+    NdEq -> "=="
+    NdNe -> "!="
+    NdLt -> "<"
+    NdLe -> "<="
+    NdNum -> "Integer"
   }
 
-  (new-node, next-tokens)
+  val lhs = match (n.lhs) {
+    Just(lhs) -> lhs.show()
+    _ -> "Nothing"
+  }
+
+  val rhs = match (n.rhs) {
+    Just(rhs) -> rhs.show()
+    _ -> "Nothing"
+  }
+
+  val value = match (n.value) {
+    Just(n) -> n.show()
+    _ -> "Nothing"
+  }
+
+  "Node { kind : " ++ kind ++ ", lhs : " ++ lhs ++ ", rhs : " ++ rhs ++ ", value : " ++ value ++ " }"
+}
+
+val equality = expr
+
+// equality = relational ("==" relational | "!=" relational)
+fun expr( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  fun parse( node, tokens ) : <console, div, exn> (node, list<token>){
+    fun consume-then-parse( rhs-literal, rhs-kind ) {
+      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
+      val (rhs, tokens) = relational(rhs-tokens)
+      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
+      parse(node, tokens)
+    }
+
+    with control continue() {
+      (node, tokens)
+    }
+
+    with override control continue() {
+      consume-then-parse("!=", NdNe)
+    }
+
+    consume-then-parse("==", NdEq)
+  }
+
+  val (lhs, rhs-tokens) = relational(tokens)
+  parse(lhs, rhs-tokens)
+}
+
+// relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
+fun relational( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  fun parse( node, tokens ) : <console, div, exn> (node, list<token>) {
+    fun consume-then-parse( literal, kind, switch ) {
+      val tokens = consume(literal, tokens).unjust-or-continue()
+      val (new-node, tokens) = add-or-sub(tokens)
+      val node = if switch then Node(kind, lhs = Just(new-node), rhs =  Just(node))
+                           else Node(kind, lhs = Just(node), rhs = Just(new-node))
+      parse(node, tokens)
+    }
+
+    with control continue() {
+      (node, tokens)
+    }
+
+    with override control continue() {
+      consume-then-parse(">=", NdLe, True)
+    }
+
+    with override control continue() {
+      consume-then-parse(">", NdLt, True)
+    }
+
+    with override control continue() {
+      consume-then-parse("<=", NdLe, False)
+    }
+
+    consume-then-parse("<", NdLt, False)
+  }
+
+  val (node, tokens) = add-or-sub(tokens)
+  parse(node, tokens)
+}
+
+// add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
+fun add-or-sub( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  fun parse( node, tokens ) : <console, div, exn> (node, list<token>) {
+    fun consume-then-parse( rhs-literal, rhs-kind ) {
+      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
+      val (rhs, tokens) = mul-or-div(rhs-tokens)
+      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
+      parse(node, tokens)
+    }
+
+    with control continue() {
+      (node, tokens)
+    }
+
+    with override control continue() {
+      consume-then-parse("-", NdSub)
+    }
+
+    consume-then-parse("+", NdAdd)
+  }
+
+  val (node, tokens) = mul-or-div(tokens)
+  parse(node, tokens)
 }
 
 // mul-or-div = unary ('*' unary | '/' unary)
-fun mul-or-div( tokens : list<token> ) : <div, exn> (node, list<token>) {
-  val (lhs-prim-node, toks) = unary(tokens)
-  var next-tokens := toks
-  var new-node := lhs-prim-node
-
-  var neither-mul-nor-div := False
-  while { !neither-mul-nor-div && !at-eof(next-tokens) } {
-    match (consume("*", next-tokens)) {
-      Just(toks) -> {
-        val (rhs-prim-node, toks) = unary(toks)
-        next-tokens := toks
-        new-node := Node(NdMul, lhs = Just(new-node), rhs = Just(rhs-prim-node))
-      }
-
-      _ -> match (consume("/", next-tokens)) {
-        Just(toks) -> {
-          val (rhs-prim-node, toks) = unary(toks)
-          next-tokens := toks
-          new-node := Node(NdDiv, lhs = Just(new-node), rhs = Just(rhs-prim-node))
-        }
-
-        _ -> neither-mul-nor-div := True
-      }
+fun mul-or-div( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  fun parse( node, tokens ) : <console, div, exn> (node, list<token>) {
+    fun consume-then-parse( rhs-literal, rhs-kind ) {
+      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
+      val (rhs, tokens) = unary(rhs-tokens)
+      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
+      parse(node, tokens)
     }
+
+    with control continue() {
+      (node, tokens)
+    }
+
+    with override control continue() {
+      consume-then-parse("/", NdDiv)
+    }
+
+    consume-then-parse("*", NdMul)
   }
 
-  (new-node, next-tokens)
+  val (lhs, rhs-tokens) = unary(tokens)
+  parse(lhs, rhs-tokens)
 }
 
 // unary = ('+' | '-')? unary
 //       | primary
-fun unary ( tokens : list<token> ) : <exn, div> (node, list<token>) {
-  match (consume("+", tokens)) {
-    Just(toks) -> unary(toks)
-
-    _ -> {
-      match (consume("-", tokens)) {
-        Just(toks) -> {
-          val (rhs-node, toks) = unary(toks)
-          val new-node = Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(rhs-node))
-          (new-node, toks)
-        }
-
-        _ -> primary(tokens)
-      }
-    }
+fun unary ( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  with control continue() {
+    primary(tokens)
   }
+
+  with override control continue() {
+    val rhs-tokens = consume("-", tokens).unjust-or-continue()
+    val (rhs, tokens) = unary(rhs-tokens)
+    val node = Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(rhs))
+    (node, tokens)
+  }
+
+  val tokens = consume("+", tokens).unjust-or-continue()
+  unary(tokens)
 }
 
 // primary = '(' expr ')' | num
-fun primary( tokens : list<token> ) : <div, exn> (node, list<token>) {
-  match (consume("(", tokens)) {
-    Just(toks) -> {
-      val (expr-node, toks) = expr(toks)
-      (expr-node, expect(")", toks))
-    }
-
-    _ -> {
-      val (num, toks) = expect-number(tokens)
-      val num-node = Node(NdNum, value = Just(num))
-      (num-node, toks)
-    }
+fun primary( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  with control continue() {
+    val (num, tokens) = expect-number(tokens)
+    val node = Node(NdNum, value = Just(num))
+    (node, tokens)
   }
+
+  val tokens = consume("(", tokens).unjust-or-continue()
+  val (node, tokens) = expr(tokens)
+  (node, expect(")", tokens))
 }
 
 //
 // Code generator
 //
 
-fun gen( nd : node ) : <console> () {
+fun gen( nd : node ) : <console, div> () {
   match (nd) {
     Node(NdNum, value = Just(value)) -> println("  push " ++ value.show())
     Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
       gen(lhs)
       gen(rhs)
 
-      println("  pop rdi"); // rhs
-      println("  pop rax"); // lhs
+      println(
+        "  pop rdi\n" ++ // rhs
+        "  pop rax"    // lhs
+      ); // rhs
 
       match (kind) {
-        NdAdd -> println("  add rax, rdi")
-        NdSub -> println("  sub rax, rdi")
-        NdMul -> println("  imul rax, rdi")
-        NdDiv -> {
-          println("  cqo")
-          println("  idiv rdi")
-        }
+        NdAdd -> println(
+          "  add rax, rdi"
+        )
+        NdSub -> println(
+          "  sub rax, rdi"
+        )
+        NdMul -> println(
+          "  imul rax, rdi"
+        )
+        NdDiv -> println(
+          "  cqo\n" ++
+          "  idiv rdi"
+        )
+        NdEq -> println(
+          "  cmp rax, rdi\n" ++
+          "  sete al\n" ++
+          "  movzx rax, al"
+        )
+        NdNe -> println(
+          "  cmp rax, rdi\n" ++
+          "  setne al\n" ++
+          "  movzx rax, al"
+        )
+        NdLt -> println(
+          "  cmp rax, rdi\n" ++
+          "  setl al\n" ++
+          "  movzx rax, al"
+        )
+        NdLe -> println(
+          "  cmp rax, rdi\n" ++
+          "  setle al\n" ++
+          "  movzx rax, al"
+        )
         _ -> ()
       }
 
@@ -303,17 +479,21 @@ fun main() : <console, div, ndet> int {
       val (node, _) = expr(tokens)
 
       // Print out the first half of assembly.
-      println(".intel_syntax noprefix")
-      println(".global main")
-      println("main:")
+      println(
+        "global main\n" ++
+        "section .smc write exec\n" ++
+        "main:"
+      )
 
       // Traverse the AST to emit assembly.
       gen(node)
 
       // The result is at the top of the stack,
       // so pop it to RAX to make it the program exit code
-      println("  pop rax")
-      println("  ret")
+      println(
+        "  pop rax\n" ++
+        "  ret"
+      )
     } fn (exn) { println(exn.message) }
 
     0
