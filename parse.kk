@@ -62,8 +62,29 @@ fun show( n : node ) : <div, console> string {
   "Node { kind : " ++ kind ++ ", lhs : " ++ lhs ++ ", rhs : " ++ rhs ++ ", value : " ++ value ++ " }"
 }
 
+// program = stmt*
+public fun program( tokens : list<token> ) : <console, div, exn> list<node> {
+  fun parse( tokens, nodes ) {
+    if (at-eof(tokens)) then nodes
+    else {
+      val (node, tokens) = stmt(tokens)
+      parse(tokens, Cons(node, nodes))
+    }
+  }
+
+  val nodes = parse(tokens, Nil)
+  nodes.reverse()
+}
+
+// stmt = expr ";"
+fun stmt( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  val (node, tokens) = expr(tokens)
+  val tokens = expect(";", tokens)
+  (node, tokens)
+}
+
 // expr = equality
-public fun expr( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+fun expr( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   match (tokens) {
     Cons(_) -> equality(tokens)
   }
@@ -233,5 +254,13 @@ fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
         if (op == literal.string()) then next-tokens else error-at(literal, "expected " ++ op)
     Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at(literal, "expected " ++ op)
+  }
+}
+
+fun at-eof( tokens : list<token> ) : bool {
+  match (tokens) {
+    Cons(Token(TokEof, value = _, literal = _), _) -> True
+    Cons(_) -> False
+    _ -> True
   }
 }

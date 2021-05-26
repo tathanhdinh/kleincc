@@ -21,10 +21,10 @@ fun main() : <console, div, ndet> int {
   try {
     // Tokenize and parse.
     val tokens = tokenize/tokenize(input)
-    val (node, _) = parse/expr(tokens)
+    val nodes = parse/program(tokens)
 
     // Traverse the AST to emit assembly.
-    codegen/codegen(node)
+    codegen/codegen(nodes)
 
     0
   } fn (exn) {

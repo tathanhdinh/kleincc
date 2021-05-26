@@ -57,19 +57,24 @@ fun gen( node : node ) : <console, div> () {
   }
 }
 
-public fun codegen( node : node ) : <console, div> () {
+public fun codegen( nodes : list<node> ) : <console, div> () {
   println(
     "global main\n" ++
     "section .smc write exec align=16\n" ++
     "main:"
   )
 
-  gen(node)
+  nodes.foreach fn(node) {
+    gen(node)
+    println(
+      "  pop rax"
+    )
+  }
 
   // The result is at the top of the stack,
   // so pop it to RDI to make it the program exit code
   println(
-    "  pop rdi"
+    "  mov rdi, rax"
   )
 
   // Pass 60 to RAX to invoke sys_exit

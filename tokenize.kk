@@ -46,14 +46,6 @@ fun show( tok : token ) : <console> string {
   "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
 }
 
-fun at-eof( tokens : list<token> ) : bool {
-  match (tokens) {
-    Cons(Token(TokEof, value = _, literal = _), _) -> True
-    Cons(_) -> False
-    _ -> True
-  }
-}
-
 // Tokenize input and returns tokens
 public fun tokenize( input : string ) : <console, div, exn> list<token> {
   fun first-of-length( slice, n ) {
@@ -86,7 +78,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
 
   fun starts-with-punct( slice ) {
     fun is-punct( c ) {
-      c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>'
+      c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';'
     }
 
     match (slice.next()) {
