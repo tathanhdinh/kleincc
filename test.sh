@@ -2,6 +2,7 @@
 
 cc="zig cc -Wno-unused-command-line-argument"
 asm="nasm -felf64"
+link="ld.gold"
 
 assert() {
 	expected="$1"
@@ -9,7 +10,8 @@ assert() {
 
 	./out/kleincc "$input" > tmp.asm
 	$asm tmp.asm -o tmp.o
-	$cc tmp.o -o tmp
+	# $cc tmp.o -o tmp
+	$link -e main tmp.o -o tmp
 	./tmp
 	actual="$?"
 
@@ -58,5 +60,8 @@ assert 0 '42 == (-33 + 51 - 4)'
 assert 0 '(19 + 27) > (+28 --18)'
 assert 0 '(33- 44 +++55) > (70-90+130)'
 assert 1 '((1+2+3+4) - (4+3+2+1)) == 0)'
+assert 1 '++3- 4 + 5 > 1 + 1 -+2'
+assert 1 '29- (4 + 2) + (5 -- 3) > 1 + 1 -+2'
+assert 1 ' 29++- (2 - 7 + 9) -   (12 -- 3) > 1 + 1 -+2  '
 
 echo ok
