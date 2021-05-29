@@ -4,7 +4,30 @@ import parse
 
 fun gen( node : node ) : <console, div> () {
   match (node) {
-    Node(NdNum, value = Just(value)) -> println("  push " ++ value.show())
+    Node(NdNum, value = Just(value)) ->
+      println(
+        "  push " ++ value.show()
+      )
+
+    Node(NdExprStmt, lhs = Just(lhs)) -> {
+      gen(lhs)
+
+      // Discard the last stored result
+      println(
+        "  add rsp, 8"
+      )
+    }
+
+    Node(NdReturn, lhs = Just(lhs)) -> {
+      gen(lhs)
+
+      // Pop the stored result
+      println(
+        "  pop rax\n" ++
+        "  jmp final"
+      )
+    }
+
     Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
       gen(lhs)
       gen(rhs)
@@ -51,8 +74,10 @@ fun gen( node : node ) : <console, div> () {
         _ -> ()
       }
 
-      println("  push rax") // store the result
+      // Store the result
+      println("  push rax")
     }
+
     _ -> ()
   }
 }
@@ -60,25 +85,18 @@ fun gen( node : node ) : <console, div> () {
 public fun codegen( nodes : list<node> ) : <console, div> () {
   println(
     "global main\n" ++
-    "section .smc write exec align=16\n" ++
+    "section .smc alloc write exec align=16\n" ++
     "main:"
   )
 
-  nodes.foreach fn(node) {
-    gen(node)
-    println(
-      "  pop rax"
-    )
-  }
+  nodes.foreach fn(node) { gen(node) }
 
-  // The result is at the top of the stack,
-  // so pop it to RDI to make it the program exit code
+  // The result has been poped into RAX,
+  // so move it to RDI to make it the program exit code.
+  // Then pass 60 to RAX to invoke sys_exit
   println(
-    "  mov rdi, rax"
-  )
-
-  // Pass 60 to RAX to invoke sys_exit
-  println(
+    "final:\n" ++
+    "  mov rdi, rax\n" ++
     "  mov rax, 60\n" ++
     "  syscall"
   )

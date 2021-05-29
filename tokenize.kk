@@ -28,19 +28,19 @@ public struct token {
 
 fun show( tok : token ) : <console> string {
   val kind = match (tok.kind) {
-    TokReserved -> "TokReserved"
-    TokNumber -> "TokNumber"
-    TokEof -> "TokEof"
+    TokReserved -> "reserved"
+    TokNumber -> "number"
+    TokEof -> "eof"
   }
 
   val value = match (tok.value) {
     Just(n) -> n.show()
-    _ -> "Nothing"
+    _ -> "nothing"
   }
 
   val literal = match (tok.literal) {
     Just(s) -> s.show()
-    _ -> "Nothing"
+    _ -> "nothing"
   }
 
   "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
@@ -69,22 +69,29 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     }
   }
 
-  fun starts-with-white( slice ) {
+  fun starts-with-char-predicate( slice : sslice, pre : (char) -> bool) {
     match (slice.next()) {
-      Just((c, s)) -> if (c.is-white()) then Just((slice.first-of-length(1), s)) else Nothing
+      Just((c, s)) -> if (c.pre()) then Just((slice.first-of-length(1), s)) else Nothing
       _ -> Nothing
     }
   }
 
-  fun starts-with-punct( slice ) {
-    fun is-punct( c ) {
-      c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';'
+  fun starts-with-keyword( slice : sslice, keyword : string ) {
+    match (slice.starts-with(keyword)) {
+      Nothing -> Nothing
+      Just((pre, suf)) -> {
+        match (suf.starts-with-char-predicate(fn (c) {
+          !c.is-alpha-num() && c != '_'
+        })) {
+          Just(_) -> Just((pre, suf))
+          _ -> Nothing
+        }
+      }
     }
+  }
 
-    match (slice.next()) {
-      Just((c, s)) -> if (c.is-punct()) then Just((slice.first-of-length(1), s)) else Nothing
-      _ -> Nothing
-    }
+  fun is-punct( c ) {
+    c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';'
   }
 
   fun starts-with-number( slice ) {
@@ -117,8 +124,17 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     }
 
     // Skip white space characters.
-    match (slice.starts-with-white()) {
+    match (slice.starts-with-char-predicate(is-white)) {
       Just((_, s)) -> return tokenize-internal(s, tokens)
+      _ -> ()
+    }
+
+    // Keywords
+    match (slice.starts-with-keyword("return")) {
+      Just((pre, suf)) -> {
+        val ret-tok = Token(TokReserved, literal = Just(pre))
+        return tokenize-internal(suf, Cons(ret-tok, tokens))
+      }
       _ -> ()
     }
 
@@ -131,7 +147,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     }
 
     // Single-letter punctuators
-    match (slice.starts-with-punct()) {
+    match (slice.starts-with-char-predicate(is-punct)) {
       Just((pre, suf)) -> {
         val punct-tok = Token(TokReserved, literal = Just(pre))
         return tokenize-internal(suf, Cons(punct-tok, tokens))

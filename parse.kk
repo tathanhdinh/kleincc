@@ -12,15 +12,17 @@ fun unjust-or-continue( m : maybe<a> ) : continue a {
 }
 
 public type node-kind {
-  NdAdd    // +
-  NdSub    // -
-  NdMul    // *
-  NdDiv    // /
-  NdEq     // ==
-  NdNe     // !=
-  NdLt     // <
-  NdLe     // <=
-  NdNum    // Integer
+  NdAdd       // +
+  NdSub       // -
+  NdMul       // *
+  NdDiv       // /
+  NdEq        // ==
+  NdNe        // !=
+  NdLt        // <
+  NdLe        // <=
+  NdReturn    // "return"
+  NdExprStmt  // expression statement
+  NdNum       // Integer
 }
 
 // AST node type
@@ -41,22 +43,24 @@ fun show( n : node ) : <div, console> string {
     NdNe -> "!="
     NdLt -> "<"
     NdLe -> "<="
-    NdNum -> "Integer"
+    NdReturn -> "return keyword"
+    NdExprStmt -> "expression statement"
+    NdNum -> "integer"
   }
 
   val lhs = match (n.lhs) {
     Just(lhs) -> lhs.show()
-    _ -> "Nothing"
+    _ -> "nothing"
   }
 
   val rhs = match (n.rhs) {
     Just(rhs) -> rhs.show()
-    _ -> "Nothing"
+    _ -> "nothing"
   }
 
   val value = match (n.value) {
     Just(n) -> n.show()
-    _ -> "Nothing"
+    _ -> "nothing"
   }
 
   "Node { kind : " ++ kind ++ ", lhs : " ++ lhs ++ ", rhs : " ++ rhs ++ ", value : " ++ value ++ " }"
@@ -76,9 +80,19 @@ public fun program( tokens : list<token> ) : <console, div, exn> list<node> {
   nodes.reverse()
 }
 
-// stmt = expr ";"
+// stmt = "return" expr ";"
+//      | expr ";"
 fun stmt( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
-  val (node, tokens) = expr(tokens)
+  with control continue() {
+    val (lhs, tokens) = expr(tokens)
+    val node = Node(NdExprStmt, lhs = Just(lhs))
+    val tokens = expect(";", tokens)
+    (node, tokens)
+  }
+
+  val tokens = consume("return", tokens).unjust-or-continue()
+  val (lhs, tokens) = expr(tokens)
+  val node = Node(NdReturn, lhs = Just(lhs))
   val tokens = expect(";", tokens)
   (node, tokens)
 }
