@@ -1,7 +1,7 @@
 module tokenize
 
 // Reports an error
-fun error( msg : string ) : exn a {
+public fun error( msg : string ) : exn a {
   throw("error: " ++ msg)
 }
 
@@ -15,6 +15,7 @@ public fun error-at( literal : sslice, msg : string ) : exn a {
 
 public type token-kind {
   TokReserved     // keywords or punctuators
+  TokIdent        // identifiers
   TokNumber       // integer literals
   TokEof          // end-of-file markers
 }
@@ -26,9 +27,10 @@ public struct token {
   literal : maybe<sslice> = Nothing
 }
 
-fun show( tok : token ) : <console> string {
+public fun show( tok : token, indent : int = 0 ) : <console> string {
   val kind = match (tok.kind) {
     TokReserved -> "reserved"
+    TokIdent -> "identifier"
     TokNumber -> "number"
     TokEof -> "eof"
   }
@@ -91,7 +93,9 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun is-punct( c ) {
-    c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' || c == '<' || c == '>' || c == ';'
+    if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')') then True
+    elif (c == '<' || c == '>' || c == ';' || c == '=') then True
+    else False
   }
 
   fun starts-with-number( slice ) {
@@ -113,6 +117,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
         val num-len = slice.count() - s.count()
         Just((num, (slice.first-of-length(num-len), s)))
       }
+
       Nothing -> Nothing
     }
   }
@@ -126,6 +131,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     // Skip white space characters.
     match (slice.starts-with-char-predicate(is-white)) {
       Just((_, s)) -> return tokenize-internal(s, tokens)
+
       _ -> ()
     }
 
@@ -135,6 +141,17 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
         val ret-tok = Token(TokReserved, literal = Just(pre))
         return tokenize-internal(suf, Cons(ret-tok, tokens))
       }
+
+      _ -> ()
+    }
+
+    // Identifier
+    match (slice.starts-with-char-predicate(is-lower)) {
+      Just((pre, suf)) -> {
+        val ident-tok = Token(TokIdent, literal = Just(pre))
+        return tokenize-internal(suf, Cons(ident-tok, tokens))
+      }
+
       _ -> ()
     }
 
@@ -152,6 +169,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
         val punct-tok = Token(TokReserved, literal = Just(pre))
         return tokenize-internal(suf, Cons(punct-tok, tokens))
       }
+
       _ -> ()
     }
 
@@ -161,6 +179,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
         val num-tok = Token(TokNumber, literal = Just(pre), value = Just(n))
         return tokenize-internal(suf, Cons(num-tok, tokens))
       }
+
       _ -> ()
     }
 

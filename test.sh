@@ -71,4 +71,7 @@ assert 2 'return 11 - 9; 25; +6-7; 1+3+8-5;'
 assert 20 'return 20; 3; 9 + 12;'
 assert 7 '12 -+5; return 3 + 4;'
 
+assert 3 ' a= 3; return a;'
+assert 22 ' a = 31; b = 9; return a- b;'
+
 echo ok

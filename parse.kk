@@ -20,8 +20,10 @@ public type node-kind {
   NdNe        // !=
   NdLt        // <
   NdLe        // <=
+  NdAssign    // =
   NdReturn    // "return"
   NdExprStmt  // expression statement
+  NdVar       // variable
   NdNum       // Integer
 }
 
@@ -30,10 +32,12 @@ public struct node {
   kind : node-kind
   lhs : maybe<node> = Nothing
   rhs : maybe<node> = Nothing
-  value : maybe<int> = Nothing
+  name : maybe<sslice> = Nothing  // used if kind is NdVar
+  value : maybe<int> = Nothing    // used if kind is NdNum
 }
 
-fun show( n : node ) : <div, console> string {
+// For debugging.
+public fun show( n : node, indent : int = 0) : <div, console> string {
   val kind = match (n.kind) {
     NdAdd -> "+"
     NdSub -> "-"
@@ -43,18 +47,20 @@ fun show( n : node ) : <div, console> string {
     NdNe -> "!="
     NdLt -> "<"
     NdLe -> "<="
+    NdAssign -> "assignment"
     NdReturn -> "return keyword"
     NdExprStmt -> "expression statement"
+    NdVar -> "identifier"
     NdNum -> "integer"
   }
 
   val lhs = match (n.lhs) {
-    Just(lhs) -> lhs.show()
+    Just(lhs) -> lhs.show(indent + " lhs : Node {".count())
     _ -> "nothing"
   }
 
   val rhs = match (n.rhs) {
-    Just(rhs) -> rhs.show()
+    Just(rhs) -> rhs.show(indent + " rhs : Node {".count())
     _ -> "nothing"
   }
 
@@ -63,7 +69,12 @@ fun show( n : node ) : <div, console> string {
     _ -> "nothing"
   }
 
-  "Node { kind : " ++ kind ++ ", lhs : " ++ lhs ++ ", rhs : " ++ rhs ++ ", value : " ++ value ++ " }"
+  val indent-str = " ".repeat(indent + "Node { ".count())
+  val node-str =                    "Node { kind : " ++ kind ++ ",\n"
+  val node-str = node-str ++ indent-str ++ "lhs : " ++ lhs ++ ",\n"
+  val node-str = node-str ++ indent-str ++ "rhs : " ++ rhs ++ ",\n"
+  val node-str = node-str ++ indent-str ++ "value : " ++ value ++ " }"
+  node-str
 }
 
 // program = stmt*
@@ -97,11 +108,28 @@ fun stmt( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   (node, tokens)
 }
 
-// expr = equality
+// expr = assign
 fun expr( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   match (tokens) {
-    Cons(_) -> equality(tokens)
+    Cons(_) -> assign(tokens)
   }
+}
+
+// assing = equality ("=" assign)?
+fun assign( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
+  fun parse( lhs, tokens ) : <console, div, exn> (node, list<token>) {
+    with control continue() {
+      (lhs, tokens)
+    }
+
+    val tokens = consume("=", tokens).unjust-or-continue()
+    val (rhs, tokens) = assign(tokens)
+    val node = Node(kind = NdAssign, lhs = Just(lhs), rhs = Just(rhs))
+    (node, tokens)
+  }
+
+  val (lhs, rhs-tokens) = equality(tokens)
+  parse(lhs, rhs-tokens)
 }
 
 // equality = relational ("==" relational | "!=" relational)
@@ -231,11 +259,17 @@ fun unary ( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   unary(tokens)
 }
 
-// primary = '(' expr ')' | num
+// primary = '(' expr ')' | ident | num
 fun primary( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   with control continue() {
     val (num, tokens) = expect-number(tokens)
     val node = Node(NdNum, value = Just(num))
+    (node, tokens)
+  }
+
+  with override control continue() {
+    val (Token(_, _, literal), tokens) = consume-ident(tokens).unjust-or-continue()
+    val node = Node(NdVar, name = literal)
     (node, tokens)
   }
 
@@ -244,7 +278,7 @@ fun primary( tokens : list<token> ) : <console, div, exn> (node, list<token>) {
   (node, expect(")", tokens))
 }
 
-// Consume the current token if it matches `op`
+// Consume the current token if it matches `op`.
 fun consume( op : string, tokens : list<token> ) : <console> maybe<list<token>> {
   match (tokens) {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
@@ -254,19 +288,36 @@ fun consume( op : string, tokens : list<token> ) : <console> maybe<list<token>> 
   }
 }
 
-// Ensure that the current token is TokNumber
+// Consume the current token if it is an identifier
+fun consume-ident( tokens : list<token> ) : <console> maybe<(token, list<token>)> {
+  match (tokens) {
+    Cons(token, tokens) -> {
+      match (token) {
+        Token(TokIdent, _) -> Just((token, tokens))
+
+        _ -> Nothing
+      }
+    }
+
+    _ ->Nothing
+  }
+}
+
+// Ensure that the current token is TokNumber.
 fun expect-number( tokens : list<token> ) : <exn> (int, list<token>) {
   match (tokens) {
     Cons(Token(TokNumber, value = Just(num), literal = Just(_)), next-tokens) -> (num, next-tokens)
+
     Cons(Token(kind = _, value = _, literal = Just(literal)), _) -> error-at(literal, "expected a number")
   }
 }
 
-// Ensure that the current token is `op`
+// Ensure that the current token is `op`.
 fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
   match (tokens) {
     Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
         if (op == literal.string()) then next-tokens else error-at(literal, "expected " ++ op)
+
     Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at(literal, "expected " ++ op)
   }
 }
@@ -274,7 +325,9 @@ fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
 fun at-eof( tokens : list<token> ) : bool {
   match (tokens) {
     Cons(Token(TokEof, value = _, literal = _), _) -> True
+
     Cons(_) -> False
+
     _ -> True
   }
 }
