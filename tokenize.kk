@@ -13,6 +13,7 @@ public fun error-at( literal : sslice, msg : string ) : exn a {
   throw(error-msg)
 }
 
+// Token
 public type token-kind {
   TokReserved     // keywords or punctuators
   TokIdent        // identifiers
@@ -57,39 +58,53 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with( slice : sslice, pre : string ) {
-    fun compare( slice, pre) {
-      match (slice.next(), pre.next()) {
+    fun compare( s, p ) {
+      match (s.next(), p.next()) {
         (Just((cs, ss)), Just((cp, sp))) -> if (cs != cp) then Nothing else compare(ss, sp)
-        (_, Nothing) -> Just(slice)
+
+        (_, Nothing) -> Just(s)
+
         _ -> Nothing
       }
     }
 
-    match (compare(slice, pre.first(pre.count()))) {
-      Just(s) -> Just((slice.first-of-length(pre.count()), s))
-      _ -> Nothing
-    }
+    compare(slice, pre.first(pre.count())).map(
+      fn (s) { (slice.first-of-length(pre.count()), s) }
+    )
   }
 
-  fun starts-with-char-predicate( slice : sslice, pre : (char) -> bool) {
-    match (slice.next()) {
-      Just((c, s)) -> if (c.pre()) then Just((slice.first-of-length(1), s)) else Nothing
-      _ -> Nothing
-    }
+  fun starts-with-char-predicate( slice : sslice, pred : (char) -> bool) {
+    slice.next().maybe(
+      onNothing = Nothing,
+      onJust = fn ((c, s)) {
+        if (c.pred()) then Just((slice.first-of-length(1), s)) else Nothing
+      }
+    )
   }
 
   fun starts-with-keyword( slice : sslice, keyword : string ) {
-    match (slice.starts-with(keyword)) {
-      Nothing -> Nothing
-      Just((pre, suf)) -> {
-        match (suf.starts-with-char-predicate(fn (c) {
-          !c.is-alpha-num() && c != '_'
-        })) {
-          Just(_) -> Just((pre, suf))
-          _ -> Nothing
-        }
+    slice.starts-with(keyword).maybe(
+      onNothing = Nothing,
+      onJust = fn ((pre, suf)) {
+        suf.starts-with-char-predicate(fn (c) { !c.is-alpha-num() && c != '_' })
+           .map(fn (_) { (pre, suf) })
       }
+    )
+  }
+
+  fun starts-with-identifier( slice : sslice ) {
+    fun parse( s, n ) {
+      s.starts-with-char-predicate(is-alpha-num).maybe(
+        onNothing = n,
+        onJust = fn ((_, pre)) { parse(pre, n + 1) }
+      )
     }
+
+    slice.starts-with-char-predicate(is-alpha).map(fn ((_, pre)) {
+      val ident-len = parse(pre, 1)
+      val ident = slice.first-of-length(ident-len)
+      (ident, ident.after())
+    })
   }
 
   fun is-punct( c ) {
@@ -99,27 +114,26 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with-number( slice ) {
-    fun parse-number ( slice, accum ) {
-      match (slice.next()) {
-        Just((c, s)) -> if (c.is-digit()) {
-          val num = match (accum) { Just(n) -> n; _ -> 0 }
-          parse-number(s, Just(num * 10 + (c - '0').int()))
+    fun parse-number ( s, accum ) {
+      s.next().maybe(
+        onNothing = (s, accum),
+        onJust = fn((c, ss)) {
+          if (c.is-digit()) {
+            val num = match (accum) { Just(n) -> n; _ -> 0 }
+            parse-number(ss, Just(num * 10 + (c - '0').int()))
+          }
+          else (s, accum)
         }
-        else (slice, accum)
-
-        _ -> (slice, accum)
-      }
+      )
     }
 
     val (s, n) = parse-number(slice, Nothing)
-    match (n) {
-      Just(num) -> {
+    n.map(
+      fn (num) {
         val num-len = slice.count() - s.count()
-        Just((num, (slice.first-of-length(num-len), s)))
+        (num, (slice.first-of-length(num-len), s))
       }
-
-      Nothing -> Nothing
-    }
+    )
   }
 
   fun tokenize-internal( slice : sslice, tokens ) {
@@ -137,8 +151,8 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
 
     // Keywords
     match (slice.starts-with-keyword("return")) {
-      Just((pre, suf)) -> {
-        val ret-tok = Token(TokReserved, literal = Just(pre))
+      Just((kw, suf)) -> {
+        val ret-tok = Token(TokReserved, literal = Just(kw))
         return tokenize-internal(suf, Cons(ret-tok, tokens))
       }
 
@@ -146,9 +160,9 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     }
 
     // Identifier
-    match (slice.starts-with-char-predicate(is-lower)) {
-      Just((pre, suf)) -> {
-        val ident-tok = Token(TokIdent, literal = Just(pre))
+    match (slice.starts-with-identifier()) {
+      Just((ident, suf)) -> {
+        val ident-tok = Token(TokIdent, literal = Just(ident))
         return tokenize-internal(suf, Cons(ident-tok, tokens))
       }
 

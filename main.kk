@@ -4,7 +4,7 @@ import tokenize
 import parse
 import codegen
 
-fun main() : <console, div, ndet> int {
+fun main() : <console, div, ndet, read<global>, write<global>> int {
   val input = match (get-argv()) {
     Cons(prog, args) -> {
       match (args) {
@@ -21,10 +21,14 @@ fun main() : <console, div, ndet> int {
   try {
     // Tokenize and parse.
     val tokens = tokenize/tokenize(input)
-    val nodes = parse/program(tokens)
+    val program = parse/program(tokens)
+
+    // Assign offsets to local variables.
+    val locals = program.locals.map-indexed(fn (i, v) { v(offset = Just(i * 8)) })
+    val program = program(locals = locals)
 
     // Traverse the AST to emit assembly.
-    codegen/codegen(nodes)
+    codegen/codegen(program)
 
     0
   } fn (exn) {

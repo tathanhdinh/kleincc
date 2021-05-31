@@ -4,11 +4,11 @@ import parse
 import tokenize
 
 // Push the given node address to the stack.
-fun gen-addr( node : node ) : <console, exn> () {
+fun gen-addr( node : node, locals : list<variable> ) : <console, exn> () {
   match (node) {
-    Node(NdVar, name = Just(name)) -> {
-      val (var-name, _) = name.next().unjust()
-      val offset = ((var-name - 'a').int() + 1) * 8
+    Node(NdVar, variable = Just(Variable(name = var-name, offset = _))) -> {
+      val v = locals.find(fn (v) { v.name == var-name }).unjust()
+      val offset = v.offset.unjust()
       println(
         "  lea rax, [rbp - " ++ offset.show() ++ "]\n" ++
         "  push rax"
@@ -37,15 +37,15 @@ fun store() : <console> () {
 }
 
 // Generate code for a given node.
-fun gen( node : node ) : <console, div, exn> () {
+fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
   match (node) {
-    Node(NdNum, lhs = _, rhs = _, name = _, value = Just(value)) ->
+    Node(NdNum, value = Just(value)) ->
       println(
         "  push " ++ value.show()
       )
 
     Node(NdExprStmt, lhs = Just(lhs)) -> {
-      gen(lhs)
+      gen(lhs, locals)
 
       // Discard the last stored result.
       println(
@@ -54,18 +54,18 @@ fun gen( node : node ) : <console, div, exn> () {
     }
 
     Node(NdVar, _) -> {
-      gen-addr(node)
+      gen-addr(node, locals)
       load()
     }
 
-    Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs), name = _, value = _) -> {
-      gen-addr(lhs)
-      gen(rhs)
+    Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
+      gen-addr(lhs, locals)
+      gen(rhs, locals)
       store()
     }
 
-    Node(NdReturn, lhs = Just(lhs), rhs = _, name = _, value = _) -> {
-      gen(lhs)
+    Node(NdReturn, lhs = Just(lhs)) -> {
+      gen(lhs, locals)
 
       // Pop the stored result.
       println(
@@ -74,9 +74,9 @@ fun gen( node : node ) : <console, div, exn> () {
       )
     }
 
-    Node(kind, lhs = Just(lhs), rhs = Just(rhs), name = _, value = _) -> {
-      gen(lhs)
-      gen(rhs)
+    Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
+      gen(lhs, locals)
+      gen(rhs, locals)
 
       println(
         "  pop rdi\n" ++ // rhs
@@ -128,7 +128,7 @@ fun gen( node : node ) : <console, div, exn> () {
   }
 }
 
-public fun codegen( nodes : list<node> ) : <console, div, exn> () {
+public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
   println(
     "global main\n" ++
     "section .smc alloc write exec align=16\n" ++
@@ -142,7 +142,7 @@ public fun codegen( nodes : list<node> ) : <console, div, exn> () {
     "  sub rsp, 208"  // 208 = 26 * 8
   )
 
-  nodes.foreach fn(node) { gen(node) }
+  prog.nodes.foreach fn(node) { gen(node, prog.locals) }
 
   // Epilogue
   println(
