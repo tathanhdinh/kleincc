@@ -1,15 +1,7 @@
 module parse
 
+import support
 import tokenize
-
-effect control continue<a>() : a
-
-fun unjust-or-continue( m : maybe<a> ) : continue a {
-  match (m) {
-    Just(v) -> v
-    _ -> continue()
-  }
-}
 
 // Local variable
 public struct variable {
@@ -29,6 +21,7 @@ public type node-kind {
   NdLe        // <=
   NdAssign    // =
   NdReturn    // "return"
+  NdIf        // "if"
   NdExprStmt  // expression statement
   NdVar       // variable
   NdNum       // Integer
@@ -37,8 +30,15 @@ public type node-kind {
 // AST node type.
 public struct node {
   kind : node-kind
+
   lhs : maybe<node> = Nothing
   rhs : maybe<node> = Nothing
+
+  // "if" statement
+  wenn : maybe<node> = Nothing          // if expr
+  dann : maybe<node> = Nothing          // then statement
+  sonst : maybe<node> = Nothing         // else statement
+
   variable : maybe<variable> = Nothing  // used if kind is NdVar
   value : maybe<int> = Nothing          // used if kind is NdNum
 }
@@ -56,6 +56,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdLe -> "<="
     NdAssign -> "assignment"
     NdReturn -> "return keyword"
+    NdIf -> "if statement"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
     NdNum -> "integer"
@@ -116,12 +117,30 @@ public fun program( tokens : list<token> ) : <console, div, exn, read<global>, w
 }
 
 // stmt = "return" expr ";"
+//      | "if" "(" expr ")" stmt ("else" stmt)?
 //      | expr ";"
 fun stmt( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
   with control continue() {
     val (lhs, tokens) = expr(tokens)
     val node = Node(NdExprStmt, lhs = Just(lhs))
     val tokens = expect(";", tokens)
+    (node, tokens)
+  }
+
+  with override control continue() {
+    val tokens = consume("if", tokens).unjust-or-continue()
+    val tokens = expect("(", tokens)
+    val (cond-expr, tokens) = expr(tokens)
+    val tokens = expect(")", tokens)
+    val (then-stmt, tokens) = stmt(tokens)
+    val (else-stmt, tokens) = consume("else", tokens).maybe(
+      onNothing = (Nothing, tokens),
+      onJust = fn (ts) {
+       val (node, tokens) = stmt(ts)
+       (Just(node), tokens)
+      }
+    )
+    val node = Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
     (node, tokens)
   }
 
@@ -283,8 +302,6 @@ fun unary ( tokens : list<token> ) : <console, div, exn, read<global>, write<glo
   unary(tokens)
 }
 
-
-
 // primary = '(' expr ')' | ident | num
 fun primary( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
   with control continue() {
@@ -313,7 +330,7 @@ fun primary( tokens : list<token> ) : <console, div, exn, read<global>, write<gl
 // Consume the current token if it matches `op`.
 fun consume( op : string, tokens : list<token> ) : <console> maybe<list<token>> {
   match (tokens) {
-    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
+    Cons(Token(TokReserved, literal = Just(literal)), next-tokens) ->
       if (op == literal.string()) then Just(next-tokens) else Nothing
 
     _ -> Nothing
@@ -325,7 +342,7 @@ fun consume-ident( tokens : list<token> ) : <console> maybe<(token, list<token>)
   match (tokens) {
     Cons(token, tokens) -> {
       match (token) {
-        Token(TokIdent, _) -> Just((token, tokens))
+        Token(TokIdent) -> Just((token, tokens))
 
         _ -> Nothing
       }
@@ -340,23 +357,23 @@ fun expect-number( tokens : list<token> ) : <exn> (int, list<token>) {
   match (tokens) {
     Cons(Token(TokNumber, value = Just(num), literal = Just(_)), next-tokens) -> (num, next-tokens)
 
-    Cons(Token(kind = _, value = _, literal = Just(literal)), _) -> error-at(literal, "expected a number")
+    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected a number")
   }
 }
 
 // Ensure that the current token is `op`.
 fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
   match (tokens) {
-    Cons(Token(TokReserved, literal = Just(literal), value = _), next-tokens) ->
+    Cons(Token(TokReserved, literal = Just(literal)), next-tokens) ->
         if (op == literal.string()) then next-tokens else error-at(literal, "expected " ++ op)
 
-    Cons(Token(kind = _, literal = Just(literal), value = _), _) -> error-at(literal, "expected " ++ op)
+    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected " ++ op)
   }
 }
 
 fun at-eof( tokens : list<token> ) : bool {
   match (tokens) {
-    Cons(Token(TokEof, value = _, literal = _), _) -> True
+    Cons(Token(TokEof)) -> True
 
     Cons(_) -> False
 

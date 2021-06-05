@@ -1,5 +1,7 @@
 module tokenize
 
+import support
+
 // Reports an error
 public fun error( msg : string ) : exn a {
   throw("error: " ++ msg)
@@ -36,15 +38,15 @@ public fun show( tok : token, indent : int = 0 ) : <console> string {
     TokEof -> "eof"
   }
 
-  val value = match (tok.value) {
-    Just(n) -> n.show()
-    _ -> "nothing"
-  }
+  val value = tok.value.maybe(
+    onNothing = "nothing",
+    onJust = fn(n) { n.show() }
+  )
 
-  val literal = match (tok.literal) {
-    Just(s) -> s.show()
-    _ -> "nothing"
-  }
+  val literal = tok.literal.maybe(
+    onNothing = "nothing",
+    onJust = fn (s) { s.show() }
+  )
 
   "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
 }
@@ -92,6 +94,16 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     )
   }
 
+  fun starts-with-reserved( slice : sslice ) {
+    with control continue() {
+      val ops = Cons("==", Cons("!=", Cons("<=", Cons(">=", Nil))))
+      ops.foreach-while(fn (op) { slice.starts-with(op) })
+    }
+
+    val keywords = Cons("return", Cons("if", Cons("else", Nil)))
+    keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) }).just-or-continue()
+  }
+
   fun starts-with-identifier( slice : sslice ) {
     fun parse( s, n ) {
       s.starts-with-char-predicate(is-alpha-num).maybe(
@@ -136,7 +148,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     )
   }
 
-  fun tokenize-internal( slice : sslice, tokens ) {
+  fun tokenize-internal( slice : sslice, tokens : list<token> ) {
     if (slice.is-empty()) then {
       val eof-tok = Token(TokEof, literal = Just(slice))
       return Cons(eof-tok, tokens)
@@ -149,11 +161,11 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
       _ -> ()
     }
 
-    // Keywords
-    match (slice.starts-with-keyword("return")) {
-      Just((kw, suf)) -> {
-        val ret-tok = Token(TokReserved, literal = Just(kw))
-        return tokenize-internal(suf, Cons(ret-tok, tokens))
+    // Keywords or multi-letter punctuators.
+    match (slice.starts-with-reserved()) {
+      Just((resv, suf)) -> {
+        val resv-tok = Token(TokReserved, literal = Just(resv))
+        return tokenize-internal(suf, Cons(resv-tok, tokens))
       }
 
       _ -> ()
@@ -167,14 +179,6 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
       }
 
       _ -> ()
-    }
-
-    // Multi-letter punctuators
-    if (slice.starts-with("==").bool() || slice.starts-with("!=").bool() ||
-        slice.starts-with("<=").bool() || slice.starts-with(">=").bool()) {
-      val pre = slice.first-of-length(2)
-      val punct-tok = Token(TokReserved, literal = Just(pre))
-      return tokenize-internal(pre.after(), Cons(punct-tok, tokens))
     }
 
     // Single-letter punctuators

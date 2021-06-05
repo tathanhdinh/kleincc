@@ -78,4 +78,11 @@ assert 17 ' foo =  4 + 13; return foo;'
 assert 20 'bar33 = 4; bar = 16; return bar+bar33;'
 assert 11 'foo = 24; bar = 13; return foo- bar;'
 
+assert 3 'if (0) return 2; return 3;'
+assert 3 'if (1-1) return 2; return 3;'
+assert 2 'if (1) return 2; return 3;'
+assert 2 'if (2-1) return 2; return 3;'
+assert 11 ' if (3+4 *9) return 5+6; else return 32;'
+assert 12 ' 22+ -11; if (5-5) return 6; else return 7+9-4;'
+
 echo ok

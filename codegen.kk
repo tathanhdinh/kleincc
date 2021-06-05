@@ -3,10 +3,12 @@ module codegen
 import parse
 import tokenize
 
+private noinline val label-seq = unsafe-total { ref(0) }
+
 // Push the given node address to the stack.
 fun gen-addr( node : node, locals : list<variable> ) : <console, exn> () {
   match (node) {
-    Node(NdVar, variable = Just(Variable(name = var-name, offset = _))) -> {
+    Node(NdVar, variable = Just(Variable(name = var-name))) -> {
       val v = locals.find(fn (v) { v.name == var-name }).unjust()
       val offset = v.offset.unjust()
       println(
@@ -53,7 +55,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
       )
     }
 
-    Node(NdVar, _) -> {
+    Node(NdVar) -> {
       gen-addr(node, locals)
       load()
     }
@@ -62,6 +64,52 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
       gen-addr(lhs, locals)
       gen(rhs, locals)
       store()
+    }
+
+    Node(NdIf, wenn = Just(wenn), dann = Just(dann)) -> {
+      val seq = !label-seq
+      label-seq := seq + 1
+
+      val end-label = ".L.end." ++ seq.show()
+      val else-label = ".L.else." ++ seq.show()
+
+      // if condition
+      gen(wenn, locals)
+      println(
+        "  pop rax\n" ++
+        "  test rax, rax"
+      )
+
+      match (node.sonst) {
+        Nothing -> {
+          println(
+            "  je " ++ end-label
+          )
+          gen(dann, locals)
+        }
+
+        Just(sonst) -> {
+          println(
+            "  je " ++ else-label
+          )
+
+          // then branch
+          gen(dann, locals)
+          println(
+            " jmp " ++ end-label
+          )
+
+          // else branch
+          println(
+            else-label ++ ":"
+          )
+          gen(sonst, locals)
+          println(
+            " jmp " ++ end-label
+          )
+        }
+      }
+      println(end-label ++ ":")
     }
 
     Node(NdReturn, lhs = Just(lhs)) -> {
