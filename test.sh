@@ -85,4 +85,7 @@ assert 2 'if (2-1) return 2; return 3;'
 assert 11 ' if (3+4 *9) return 5+6; else return 32;'
 assert 12 ' 22+ -11; if (5-5) return 6; else return 7+9-4;'
 
+assert 10 'i=0; while(i<10) i=i+1; return i;'
+assert 19 'i = 1; while (i + 1 < 10+9) i = 1 + i; return i+1;'
+
 echo ok

@@ -4,9 +4,12 @@ import parse
 import tokenize
 
 private noinline val label-seq = unsafe-total { ref(0) }
+private noinline val local-variables = unsafe-total { ref(Nil) }
 
 // Push the given node address to the stack.
-fun gen-addr( node : node, locals : list<variable> ) : <console, exn> () {
+fun gen-addr( node : node ) : <console, exn> () {
+  val locals = !local-variables
+
   match (node) {
     Node(NdVar, variable = Just(Variable(name = var-name))) -> {
       val v = locals.find(fn (v) { v.name == var-name }).unjust()
@@ -39,7 +42,7 @@ fun store() : <console> () {
 }
 
 // Generate code for a given node.
-fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
+fun gen( node : node) : <console, div, exn> () {
   match (node) {
     Node(NdNum, value = Just(value)) ->
       println(
@@ -47,7 +50,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
       )
 
     Node(NdExprStmt, lhs = Just(lhs)) -> {
-      gen(lhs, locals)
+      gen(lhs)
 
       // Discard the last stored result.
       println(
@@ -56,13 +59,13 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
     }
 
     Node(NdVar) -> {
-      gen-addr(node, locals)
+      gen-addr(node)
       load()
     }
 
     Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen-addr(lhs, locals)
-      gen(rhs, locals)
+      gen-addr(lhs)
+      gen(rhs)
       store()
     }
 
@@ -74,7 +77,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
       val else-label = ".L.else." ++ seq.show()
 
       // if condition
-      gen(wenn, locals)
+      gen(wenn)
       println(
         "  pop rax\n" ++
         "  test rax, rax"
@@ -85,7 +88,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
           println(
             "  je " ++ end-label
           )
-          gen(dann, locals)
+          gen(dann)
         }
 
         Just(sonst) -> {
@@ -94,7 +97,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
           )
 
           // then branch
-          gen(dann, locals)
+          gen(dann)
           println(
             " jmp " ++ end-label
           )
@@ -103,7 +106,7 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
           println(
             else-label ++ ":"
           )
-          gen(sonst, locals)
+          gen(sonst)
           println(
             " jmp " ++ end-label
           )
@@ -112,8 +115,29 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
       println(end-label ++ ":")
     }
 
+    Node(NdWhile, wenn = Just(wenn), dann = Just(dann)) -> {
+      val seq = !label-seq
+      label-seq := seq + 1
+
+      val begin-label = ".L.begin." ++ seq.show()
+      val end-label = ".L.end." ++ seq.show()
+
+      println(begin-label ++ ":")
+      gen(wenn)
+      println(
+        "  pop rax\n" ++
+        "  test rax, rax\n" ++
+        "  je " ++ end-label
+      )
+      gen(dann)
+      println(
+        "  jmp " ++ begin-label ++ "\n" ++
+        end-label ++ ":"
+      )
+    }
+
     Node(NdReturn, lhs = Just(lhs)) -> {
-      gen(lhs, locals)
+      gen(lhs)
 
       // Pop the stored result.
       println(
@@ -123,8 +147,8 @@ fun gen( node : node, locals : list<variable> ) : <console, div, exn> () {
     }
 
     Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen(lhs, locals)
-      gen(rhs, locals)
+      gen(lhs)
+      gen(rhs)
 
       println(
         "  pop rdi\n" ++ // rhs
@@ -190,7 +214,8 @@ public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
     "  sub rsp, 208"  // 208 = 26 * 8
   )
 
-  prog.nodes.foreach fn(node) { gen(node, prog.locals) }
+  local-variables := prog.locals
+  prog.nodes.foreach fn(node) { gen(node) }
 
   // Epilogue
   println(

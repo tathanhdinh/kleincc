@@ -100,7 +100,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
       ops.foreach-while(fn (op) { slice.starts-with(op) })
     }
 
-    val keywords = Cons("return", Cons("if", Cons("else", Nil)))
+    val keywords = Cons("while", Cons("return", Cons("if", Cons("else", Nil))))
     keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) }).just-or-continue()
   }
 

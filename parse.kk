@@ -22,6 +22,7 @@ public type node-kind {
   NdAssign    // =
   NdReturn    // "return"
   NdIf        // "if"
+  NdWhile     // "while"
   NdExprStmt  // expression statement
   NdVar       // variable
   NdNum       // Integer
@@ -57,6 +58,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdAssign -> "assignment"
     NdReturn -> "return keyword"
     NdIf -> "if statement"
+    NdWhile -> "while statement"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
     NdNum -> "integer"
@@ -118,12 +120,23 @@ public fun program( tokens : list<token> ) : <console, div, exn, read<global>, w
 
 // stmt = "return" expr ";"
 //      | "if" "(" expr ")" stmt ("else" stmt)?
+//      | "while" "(" expr ")" stmt
 //      | expr ";"
 fun stmt( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
   with control continue() {
     val (lhs, tokens) = expr(tokens)
     val node = Node(NdExprStmt, lhs = Just(lhs))
     val tokens = expect(";", tokens)
+    (node, tokens)
+  }
+
+  with override control continue() {
+    val tokens = consume("while", tokens).unjust-or-continue()
+    val tokens = expect("(", tokens)
+    val (cond-expr, tokens) = expr(tokens)
+    val tokens = expect(")", tokens)
+    val (then-stmt, tokens) = stmt(tokens)
+    val node = Node(NdWhile, wenn = Just(cond-expr), dann = Just(then-stmt))
     (node, tokens)
   }
 
