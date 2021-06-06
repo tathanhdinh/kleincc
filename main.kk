@@ -21,14 +21,14 @@ fun main() : <console, div, ndet, read<global>, write<global>> int {
   try {
     // Tokenize and parse.
     val tokens = tokenize/tokenize(input)
-    val program = parse/program(tokens)
+    val programm = parse/program(tokens)
 
     // Assign offsets to local variables.
-    val locals = program.locals.map-indexed(fn (i, v) { v(offset = Just(i * 8)) })
-    val program = program(locals = locals)
+    val locals = programm.locals.map-indexed(fn (i, v) { v(offset = Just(i * 8)) })
+    val programm = programm(locals = locals)
 
     // Traverse the AST to emit assembly.
-    codegen/codegen(program)
+    codegen/codegen(programm)
 
     0
   } fn (exn) {

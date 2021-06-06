@@ -23,6 +23,7 @@ public type node-kind {
   NdReturn    // "return"
   NdIf        // "if"
   NdWhile     // "while"
+  NdFor       // "for"
   NdExprStmt  // expression statement
   NdVar       // variable
   NdNum       // Integer
@@ -35,10 +36,12 @@ public struct node {
   lhs : maybe<node> = Nothing
   rhs : maybe<node> = Nothing
 
-  // "if" statement
-  wenn : maybe<node> = Nothing          // if expr
+  // "if", "while" or "for" statement
+  wenn : maybe<node> = Nothing          // condition expression
   dann : maybe<node> = Nothing          // then statement
   sonst : maybe<node> = Nothing         // else statement
+  init : maybe<node> = Nothing          // initial statement
+  inc : maybe<node> = Nothing           // increment statement
 
   variable : maybe<variable> = Nothing  // used if kind is NdVar
   value : maybe<int> = Nothing          // used if kind is NdNum
@@ -59,31 +62,32 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdReturn -> "return keyword"
     NdIf -> "if statement"
     NdWhile -> "while statement"
+    NdFor -> "for statement"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
     NdNum -> "integer"
   }
 
-  val lhs = match (n.lhs) {
+  val linke-seite = match (n.lhs) {
     Just(lhs) -> lhs.show(indent + " lhs : Node {".count())
     _ -> "nothing"
   }
 
-  val rhs = match (n.rhs) {
+  val rechte-seite = match (n.rhs) {
     Just(rhs) -> rhs.show(indent + " rhs : Node {".count())
     _ -> "nothing"
   }
 
   val value = match (n.value) {
-    Just(n) -> n.show()
+    Just(v) -> v.show()
     _ -> "nothing"
   }
 
   val indent-str = " ".repeat(indent + "Node { ".count())
-  val node-str =                    "Node { kind : " ++ kind ++ ",\n"
-  val node-str = node-str ++ indent-str ++ "lhs : " ++ lhs ++ ",\n"
-  val node-str = node-str ++ indent-str ++ "rhs : " ++ rhs ++ ",\n"
-  val node-str = node-str ++ indent-str ++ "value : " ++ value ++ " }"
+  val node-str = "Node { kind : " ++ kind ++ ",\n" ++
+    indent-str ++       "lhs : " ++ linke-seite ++ ",\n" ++
+    indent-str ++       "rhs : " ++ rechte-seite ++ ",\n" ++
+    indent-str ++       "value : " ++ value ++ " }"
   node-str
 }
 
@@ -93,6 +97,7 @@ public struct funktion {
   stack-size : int
 }
 
+private noinline val remained-tokens = unsafe-total { ref(Nil) }
 private noinline val local-variables = unsafe-total { ref(Nil) }
 
 fun find-variable( token : token ) : <read<global>> maybe<variable> {
@@ -106,101 +111,104 @@ fun find-variable( token : token ) : <read<global>> maybe<variable> {
 
 // program = stmt*
 public fun program( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> funktion {
-  fun parse( tokens, nodes ) {
-    if (at-eof(tokens)) then nodes
-    else {
-      val (node, tokens) = stmt(tokens)
-      parse(tokens, Cons(node, nodes))
-    }
+  fun parse( nodes ) {
+    if (at-eof()) then nodes else parse(Cons(stmt(), nodes))
   }
 
-  val nodes = parse(tokens, Nil)
+  remained-tokens := tokens
+  val nodes = parse(Nil)
   Funktion(nodes.reverse(), locals = (!local-variables).reverse(), stack-size = 0)
 }
 
 // stmt = "return" expr ";"
 //      | "if" "(" expr ")" stmt ("else" stmt)?
 //      | "while" "(" expr ")" stmt
+//      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
 //      | expr ";"
-fun stmt( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun stmt() : <console, div, exn, read<global>, write<global>> node {
   with control continue() {
-    val (lhs, tokens) = expr(tokens)
-    val node = Node(NdExprStmt, lhs = Just(lhs))
-    val tokens = expect(";", tokens)
-    (node, tokens)
+    val lhs = expr()
+    val node = Node(NdExprStmt, lhs = Just(lhs)); expect(";")
+    node
   }
 
+  // parse "for" statement
   with override control continue() {
-    val tokens = consume("while", tokens).unjust-or-continue()
-    val tokens = expect("(", tokens)
-    val (cond-expr, tokens) = expr(tokens)
-    val tokens = expect(")", tokens)
-    val (then-stmt, tokens) = stmt(tokens)
-    val node = Node(NdWhile, wenn = Just(cond-expr), dann = Just(then-stmt))
-    (node, tokens)
+    consume("for").unjust-or-continue(); expect("(")
+
+    val init-stmt = consume(";").map(
+      fn (_) { Nothing }
+    ).unjust-or({
+      val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
+      Just(node)
+    })
+
+    val cond-expr = consume(";").map(
+      fn (_) { Nothing }
+    ).unjust-or({
+      val node = expr(); expect(";")
+      Just(node)
+    })
+
+    val inc-stmt = consume(")").map(
+      fn (_) { Nothing }
+    ).unjust-or({
+      val node = Node(NdExprStmt, lhs = Just(expr())); expect(")")
+      Just(node)
+    })
+
+    Node(NdFor, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
   }
 
+  // parse "while" statement
   with override control continue() {
-    val tokens = consume("if", tokens).unjust-or-continue()
-    val tokens = expect("(", tokens)
-    val (cond-expr, tokens) = expr(tokens)
-    val tokens = expect(")", tokens)
-    val (then-stmt, tokens) = stmt(tokens)
-    val (else-stmt, tokens) = consume("else", tokens).maybe(
-      onNothing = (Nothing, tokens),
-      onJust = fn (ts) {
-       val (node, tokens) = stmt(ts)
-       (Just(node), tokens)
-      }
-    )
-    val node = Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
-    (node, tokens)
+    consume("while").unjust-or-continue(); expect("(")
+    val cond-expr = expr(); expect(")")
+    Node(NdWhile, wenn = Just(cond-expr), dann = Just(stmt()))
   }
 
-  val tokens = consume("return", tokens).unjust-or-continue()
-  val (lhs, tokens) = expr(tokens)
-  val node = Node(NdReturn, lhs = Just(lhs))
-  val tokens = expect(";", tokens)
-  (node, tokens)
+  // parse "if" statement
+  with override control continue() {
+    consume("if").unjust-or-continue(); expect("(")
+    val cond-expr = expr(); expect(")")
+    val then-stmt = stmt()
+    val else-stmt = consume("else").map(fn (_) { stmt() })
+    Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
+  }
+
+  consume("return").unjust-or-continue()
+  val node = Node(NdReturn, lhs = Just(expr())); expect(";")
+  node
 }
 
 // expr = assign
-fun expr( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  match (tokens) {
-    Cons(_) -> assign(tokens)
+fun expr( ) : <console, div, exn, read<global>, write<global>> node {
+  match (!remained-tokens) {
+    Cons(_) -> assign()
   }
 }
 
-// assing = equality ("=" assign)?
-fun assign( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  fun parse( lhs, tokens ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-    with control continue() {
-      (lhs, tokens)
+// assign = equality ("=" assign)?
+fun assign() : <console, div, exn, read<global>, write<global>> node {
+  val lhs = equality()
+  consume("=").maybe(
+    onNothing = lhs,
+    onJust = fn (_) {
+      Node(kind = NdAssign, lhs = Just(lhs), rhs = Just(assign()))
     }
-
-    val tokens = consume("=", tokens).unjust-or-continue()
-    val (rhs, tokens) = assign(tokens)
-    val node = Node(kind = NdAssign, lhs = Just(lhs), rhs = Just(rhs))
-    (node, tokens)
-  }
-
-  val (lhs, rhs-tokens) = equality(tokens)
-  parse(lhs, rhs-tokens)
+  )
 }
 
 // equality = relational ("==" relational | "!=" relational)
-fun equality( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  fun parse( node, tokens ) : <console, div, exn, read<global>, write<global>> (node, list<token>){
+fun equality() : <console, div, exn, read<global>, write<global>> node {
+  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
     fun consume-then-parse( rhs-literal, rhs-kind ) {
-      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
-      val (rhs, tokens) = relational(rhs-tokens)
-      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
-      parse(node, tokens)
+      consume(rhs-literal).unjust-or-continue()
+      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(relational()))
+      parse(node)
     }
 
-    with control continue() {
-      (node, tokens)
-    }
+    with control continue() { lhs }
 
     with override control continue() {
       consume-then-parse("!=", NdNe)
@@ -209,24 +217,21 @@ fun equality( tokens : list<token> ) : <console, div, exn, read<global>, write<g
     consume-then-parse("==", NdEq)
   }
 
-  val (lhs, rhs-tokens) = relational(tokens)
-  parse(lhs, rhs-tokens)
+  parse(relational())
 }
 
 // relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
-fun relational( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  fun parse( node, tokens ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun relational() : <console, div, exn, read<global>, write<global>> node {
+  fun parse( node ) : <console, div, exn, read<global>, write<global>> node {
     fun consume-then-parse( literal, kind, switch ) {
-      val tokens = consume(literal, tokens).unjust-or-continue()
-      val (new-node, tokens) = add-or-sub(tokens)
-      val node = if switch then Node(kind, lhs = Just(new-node), rhs =  Just(node))
-                           else Node(kind, lhs = Just(node), rhs = Just(new-node))
-      parse(node, tokens)
+      consume(literal).unjust-or-continue()
+      val other-node = add-or-sub()
+      val new-node = if switch then Node(kind, lhs = Just(other-node), rhs =  Just(node))
+                               else Node(kind, lhs = Just(node), rhs = Just(other-node))
+      parse(new-node)
     }
 
-    with control continue() {
-      (node, tokens)
-    }
+    with control continue() { node }
 
     with override control continue() {
       consume-then-parse(">=", NdLe, True)
@@ -243,23 +248,19 @@ fun relational( tokens : list<token> ) : <console, div, exn, read<global>, write
     consume-then-parse("<", NdLt, False)
   }
 
-  val (node, tokens) = add-or-sub(tokens)
-  parse(node, tokens)
+  parse(add-or-sub())
 }
 
 // add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
-fun add-or-sub( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  fun parse( node, tokens ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun add-or-sub() : <console, div, exn, read<global>, write<global>> node {
+  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
     fun consume-then-parse( rhs-literal, rhs-kind ) {
-      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
-      val (rhs, tokens) = mul-or-div(rhs-tokens)
-      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
-      parse(node, tokens)
+      consume(rhs-literal).unjust-or-continue()
+      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(mul-or-div()))
+      parse(node)
     }
 
-    with control continue() {
-      (node, tokens)
-    }
+    with control continue() { lhs }
 
     with override control continue() {
       consume-then-parse("-", NdSub)
@@ -268,23 +269,19 @@ fun add-or-sub( tokens : list<token> ) : <console, div, exn, read<global>, write
     consume-then-parse("+", NdAdd)
   }
 
-  val (node, tokens) = mul-or-div(tokens)
-  parse(node, tokens)
+  parse(mul-or-div())
 }
 
 // mul-or-div = unary ('*' unary | '/' unary)
-fun mul-or-div( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
-  fun parse( node, tokens ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun mul-or-div() : <console, div, exn, read<global>, write<global>> node {
+  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
     fun consume-then-parse( rhs-literal, rhs-kind ) {
-      val rhs-tokens = consume(rhs-literal, tokens).unjust-or-continue()
-      val (rhs, tokens) = unary(rhs-tokens)
-      val node = Node(kind = rhs-kind, lhs = Just(node), rhs = Just(rhs))
-      parse(node, tokens)
+      consume(rhs-literal).unjust-or-continue()
+      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(unary()))
+      parse(node)
     }
 
-    with control continue() {
-      (node, tokens)
-    }
+    with control continue() { lhs }
 
     with override control continue() {
       consume-then-parse("/", NdDiv)
@@ -293,99 +290,104 @@ fun mul-or-div( tokens : list<token> ) : <console, div, exn, read<global>, write
     consume-then-parse("*", NdMul)
   }
 
-  val (lhs, rhs-tokens) = unary(tokens)
-  parse(lhs, rhs-tokens)
+  parse(unary())
 }
 
 // unary = ('+' | '-')? unary
 //       | primary
-fun unary ( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun unary ( ) : <console, div, exn, read<global>, write<global>> node {
   with control continue() {
-    primary(tokens)
+    primary()
   }
 
   with override control continue() {
-    val rhs-tokens = consume("-", tokens).unjust-or-continue()
-    val (rhs, tokens) = unary(rhs-tokens)
-    val node = Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(rhs))
-    (node, tokens)
+    consume("-").unjust-or-continue()
+    Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(unary()))
   }
 
-  val tokens = consume("+", tokens).unjust-or-continue()
-  unary(tokens)
+  consume("+").unjust-or-continue()
+  unary()
 }
 
 // primary = '(' expr ')' | ident | num
-fun primary( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> (node, list<token>) {
+fun primary() : <console, div, exn, read<global>, write<global>> node {
   with control continue() {
-    val (num, tokens) = expect-number(tokens)
-    val node = Node(NdNum, value = Just(num))
-    (node, tokens)
+    Node(NdNum, value = Just(expect-number()))
   }
 
   with override control continue() {
-    val (token, tokens) = consume-ident(tokens).unjust-or-continue()
+    val token = consume-ident().unjust-or-continue()
     val new-or-existing-var = try { find-variable(token).unjust } fn (_) {
       val v = Variable(name = token.literal.unjust().string())
       local-variables := Cons(v, !local-variables)
       v
     }
 
-    val node = Node(NdVar, variable = Just(new-or-existing-var))
-    (node, tokens)
+    Node(NdVar, variable = Just(new-or-existing-var))
   }
 
-  val tokens = consume("(", tokens).unjust-or-continue()
-  val (node, tokens) = expr(tokens)
-  (node, expect(")", tokens))
+  consume("(").unjust-or-continue()
+  val node = expr(); expect(")")
+  node
 }
 
 // Consume the current token if it matches `op`.
-fun consume( op : string, tokens : list<token> ) : <console> maybe<list<token>> {
-  match (tokens) {
-    Cons(Token(TokReserved, literal = Just(literal)), next-tokens) ->
-      if (op == literal.string()) then Just(next-tokens) else Nothing
+fun consume( op : string ) : <console> maybe<()> {
+  match (!remained-tokens) {
+    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
+      if (op == literal.string())
+      then {
+        remained-tokens := tokens
+        Just(())
+      }
+      else Nothing
 
     _ -> Nothing
   }
 }
 
 // Consume the current token if it is an identifier
-fun consume-ident( tokens : list<token> ) : <console> maybe<(token, list<token>)> {
-  match (tokens) {
-    Cons(token, tokens) -> {
-      match (token) {
-        Token(TokIdent) -> Just((token, tokens))
-
-        _ -> Nothing
+fun consume-ident() : <console> maybe<token> {
+  try {
+    match (!remained-tokens) {
+      Cons(token, tokens) -> {
+        match (token) {
+          Token(TokIdent) -> {
+            remained-tokens := tokens
+            Just(token)
+          }
+        }
       }
     }
-
-    _ ->Nothing
-  }
+  } fn (_) { Nothing }
 }
 
 // Ensure that the current token is TokNumber.
-fun expect-number( tokens : list<token> ) : <exn> (int, list<token>) {
-  match (tokens) {
-    Cons(Token(TokNumber, value = Just(num), literal = Just(_)), next-tokens) -> (num, next-tokens)
+fun expect-number() : <exn> int {
+  match (!remained-tokens) {
+    Cons(Token(TokNumber, value = Just(num), literal = Just(_)), tokens) -> {
+      remained-tokens := tokens
+      num
+    }
 
     Cons(Token(literal = Just(literal))) -> error-at(literal, "expected a number")
   }
 }
 
 // Ensure that the current token is `op`.
-fun expect( op : string, tokens : list<token> ) : <exn> list<token> {
-  match (tokens) {
-    Cons(Token(TokReserved, literal = Just(literal)), next-tokens) ->
-        if (op == literal.string()) then next-tokens else error-at(literal, "expected " ++ op)
+fun expect( op : string ) : <exn> () {
+  match (!remained-tokens) {
+    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
+        if (op == literal.string())
+        then remained-tokens := tokens
+        else error-at(literal, "expected " ++ op)
 
     Cons(Token(literal = Just(literal))) -> error-at(literal, "expected " ++ op)
   }
 }
 
-fun at-eof( tokens : list<token> ) : bool {
-  match (tokens) {
+fun at-eof() : bool {
+  match (!remained-tokens) {
     Cons(Token(TokEof)) -> True
 
     Cons(_) -> False

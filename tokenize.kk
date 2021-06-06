@@ -96,11 +96,11 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
 
   fun starts-with-reserved( slice : sslice ) {
     with control continue() {
-      val ops = Cons("==", Cons("!=", Cons("<=", Cons(">=", Nil))))
+      val ops = [">=", "<=", "!=", "=="]
       ops.foreach-while(fn (op) { slice.starts-with(op) })
     }
 
-    val keywords = Cons("while", Cons("return", Cons("if", Cons("else", Nil))))
+    val keywords = ["return", "if", "else", "while", "for"]
     keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) }).just-or-continue()
   }
 
@@ -120,9 +120,8 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun is-punct( c ) {
-    if (c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')') then True
-    elif (c == '<' || c == '>' || c == ';' || c == '=') then True
-    else False
+    c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' ||
+      c == '<' || c == '>' || c == ';' || c == '='
   }
 
   fun starts-with-number( slice ) {

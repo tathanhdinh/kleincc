@@ -42,7 +42,7 @@ fun store() : <console> () {
 }
 
 // Generate code for a given node.
-fun gen( node : node) : <console, div, exn> () {
+fun gen( node : node ) : <console, div, exn> () {
   match (node) {
     Node(NdNum, value = Just(value)) ->
       println(
@@ -86,14 +86,16 @@ fun gen( node : node) : <console, div, exn> () {
       match (node.sonst) {
         Nothing -> {
           println(
-            "  je " ++ end-label
+            "  jz " ++ end-label
           )
+
+          // then branch
           gen(dann)
         }
 
         Just(sonst) -> {
           println(
-            "  je " ++ else-label
+            "  jz " ++ else-label
           )
 
           // then branch
@@ -103,9 +105,7 @@ fun gen( node : node) : <console, div, exn> () {
           )
 
           // else branch
-          println(
-            else-label ++ ":"
-          )
+          println(else-label ++ ":")
           gen(sonst)
           println(
             " jmp " ++ end-label
@@ -113,6 +113,47 @@ fun gen( node : node) : <console, div, exn> () {
         }
       }
       println(end-label ++ ":")
+    }
+
+    Node(NdFor, dann = Just(dann)) -> {
+      val seq = !label-seq
+      label-seq := seq + 1
+
+      val begin-label = ".L.begin." ++ seq.show()
+      val end-label = ".L.end." ++ seq.show()
+
+      // Generate the initialization statement
+      node.init.maybe(
+        onNothing = (),
+        onJust = gen
+      )
+      println(begin-label ++ ":")
+
+      // Generate the conditional expression
+      node.wenn.maybe(
+        onNothing = (),
+        onJust = fn (wenn) {
+          gen(wenn)
+          println(
+            "  pop rax\n" ++
+            "  test rax, rax\n" ++
+            "  jz " ++ end-label
+          )
+        }
+      )
+
+      // Generate the body statement
+      gen(dann)
+
+      // Generate the increment statement
+      node.inc.maybe(
+        onNothing = (),
+        onJust = gen
+      )
+      println(
+        "  jmp " ++ begin-label ++ "\n" ++
+        end-label ++ ":"
+      )
     }
 
     Node(NdWhile, wenn = Just(wenn), dann = Just(dann)) -> {
@@ -127,7 +168,7 @@ fun gen( node : node) : <console, div, exn> () {
       println(
         "  pop rax\n" ++
         "  test rax, rax\n" ++
-        "  je " ++ end-label
+        "  jz " ++ end-label
       )
       gen(dann)
       println(
@@ -151,8 +192,8 @@ fun gen( node : node) : <console, div, exn> () {
       gen(rhs)
 
       println(
-        "  pop rdi\n" ++ // rhs
-        "  pop rax"      // lhs
+        "  pop rdi\n" ++ // rechte seite
+        "  pop rax"      // linke seite
       );
 
       match (kind) {
@@ -224,7 +265,7 @@ public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
     "  pop rbp"
   )
 
-  // The result has been poped into RAX,
+  // The result has been popped into RAX,
   // so move it to RDI to make it the program exit code.
   // Then pass 60 to RAX to invoke sys_exit
   println(

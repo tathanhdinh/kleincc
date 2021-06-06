@@ -88,4 +88,8 @@ assert 12 ' 22+ -11; if (5-5) return 6; else return 7+9-4;'
 assert 10 'i=0; while(i<10) i=i+1; return i;'
 assert 19 'i = 1; while (i + 1 < 10+9) i = 1 + i; return i+1;'
 
+assert 3 'for (;;) return 3; return 5;'
+assert 55 'i=0; j=0; for (i=0; i<=10; i=i+1) j=i+j; return j;'
+assert 82 'i = 11; j = i-9; for(; j < 10; j=j+9) i = i + 71; return i ;'
+
 echo ok
