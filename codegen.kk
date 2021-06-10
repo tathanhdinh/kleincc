@@ -49,8 +49,8 @@ fun gen( node : node ) : <console, div, exn> () {
         "  push " ++ value.show()
       )
 
-    Node(NdExprStmt, lhs = Just(lhs)) -> {
-      gen(lhs)
+    Node(NdExprStmt, lhs = Just(linke-seite)) -> {
+      gen(linke-seite)
 
       // Discard the last stored result.
       println(
@@ -59,14 +59,11 @@ fun gen( node : node ) : <console, div, exn> () {
     }
 
     Node(NdVar) -> {
-      gen-addr(node)
-      load()
+      gen-addr(node); load()
     }
 
-    Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen-addr(lhs)
-      gen(rhs)
-      store()
+    Node(NdAssign, lhs = Just(linke-seite), rhs = Just(rechte-seite)) -> {
+      gen-addr(linke-seite); gen(rechte-seite); store()
     }
 
     Node(NdIf, wenn = Just(wenn), dann = Just(dann)) -> {
@@ -177,6 +174,10 @@ fun gen( node : node ) : <console, div, exn> () {
       )
     }
 
+    Node(NdBlock, body = Just(body)) -> {
+      body.foreach(gen)
+    }
+
     Node(NdReturn, lhs = Just(lhs)) -> {
       gen(lhs)
 
@@ -187,9 +188,9 @@ fun gen( node : node ) : <console, div, exn> () {
       )
     }
 
-    Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen(lhs)
-      gen(rhs)
+    Node(kind, lhs = Just(linke-seite), rhs = Just(rechte-seite)) -> {
+      gen(linke-seite)
+      gen(rechte-seite)
 
       println(
         "  pop rdi\n" ++ // rechte seite
@@ -256,7 +257,8 @@ public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
   )
 
   local-variables := prog.locals
-  prog.nodes.foreach fn(node) { gen(node) }
+  // prog.nodes.foreach fn(node) { gen(node) }
+  prog.nodes.foreach(gen)
 
   // Epilogue
   println(

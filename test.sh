@@ -92,4 +92,8 @@ assert 3 'for (;;) return 3; return 5;'
 assert 55 'i=0; j=0; for (i=0; i<=10; i=i+1) j=i+j; return j;'
 assert 82 'i = 11; j = i-9; for(; j < 10; j=j+9) i = i + 71; return i ;'
 
+assert 3 '{1; {2;} return 3;}'
+assert 55 'i=0; j=0; while(i<=10) {j=i+j; i=i+1;} return j;'
+assert 0 'a=0; b=1; while (a+b > 0) {a = a - 1;} return 0;'
+
 echo ok

@@ -95,13 +95,15 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with-reserved( slice : sslice ) {
-    with control continue() {
+    val keywords = ["return", "if", "else", "while", "for"]
+    val maybe-keyword = keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) })
+
+    if (maybe-keyword.bool())
+    then maybe-keyword
+    else {
       val ops = [">=", "<=", "!=", "=="]
       ops.foreach-while(fn (op) { slice.starts-with(op) })
     }
-
-    val keywords = ["return", "if", "else", "while", "for"]
-    keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) }).just-or-continue()
   }
 
   fun starts-with-identifier( slice : sslice ) {
@@ -121,7 +123,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
 
   fun is-punct( c ) {
     c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' ||
-      c == '<' || c == '>' || c == ';' || c == '='
+      c == '<' || c == '>' || c == ';' || c == '=' || c == '{' || c == '}'
   }
 
   fun starts-with-number( slice ) {

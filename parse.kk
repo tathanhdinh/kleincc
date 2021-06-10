@@ -24,6 +24,7 @@ public type node-kind {
   NdIf        // "if"
   NdWhile     // "while"
   NdFor       // "for"
+  NdBlock     // { ... }
   NdExprStmt  // expression statement
   NdVar       // variable
   NdNum       // Integer
@@ -42,6 +43,9 @@ public struct node {
   sonst : maybe<node> = Nothing         // else statement
   init : maybe<node> = Nothing          // initial statement
   inc : maybe<node> = Nothing           // increment statement
+
+  // block
+  body: maybe<list<node>> = Nothing     // statement block
 
   variable : maybe<variable> = Nothing  // used if kind is NdVar
   value : maybe<int> = Nothing          // used if kind is NdNum
@@ -63,6 +67,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdIf -> "if statement"
     NdWhile -> "while statement"
     NdFor -> "for statement"
+    NdBlock -> "block statement"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
     NdNum -> "integer"
@@ -100,6 +105,8 @@ public struct funktion {
 private noinline val remained-tokens = unsafe-total { ref(Nil) }
 private noinline val local-variables = unsafe-total { ref(Nil) }
 
+alias zerteilen = <console, div, exn, read<global>, write<global>>
+
 fun find-variable( token : token ) : <read<global>> maybe<variable> {
   val vars = !local-variables
   vars.find(fn (v) {
@@ -109,8 +116,10 @@ fun find-variable( token : token ) : <read<global>> maybe<variable> {
   })
 }
 
-// program = stmt*
-public fun program( tokens : list<token> ) : <console, div, exn, read<global>, write<global>> funktion {
+/*
+ program = stmt*
+ */
+public fun program( tokens : list<token> ) : zerteilen funktion {
   fun parse( nodes ) {
     if (at-eof()) then nodes else parse(Cons(stmt(), nodes))
   }
@@ -120,21 +129,42 @@ public fun program( tokens : list<token> ) : <console, div, exn, read<global>, w
   Funktion(nodes.reverse(), locals = (!local-variables).reverse(), stack-size = 0)
 }
 
-// stmt = "return" expr ";"
-//      | "if" "(" expr ")" stmt ("else" stmt)?
-//      | "while" "(" expr ")" stmt
-//      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
-//      | expr ";"
+/*
+stmt = "return" expr ";"
+     | "if" "(" expr ")" stmt ("else" stmt)?
+     | "while" "(" expr ")" stmt
+     | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+     | "{" stmt* "}"
+     | expr ";"
+*/
 fun stmt() : <console, div, exn, read<global>, write<global>> node {
-  with control continue() {
-    val lhs = expr()
-    val node = Node(NdExprStmt, lhs = Just(lhs)); expect(";")
+  // "return" statement
+  if (consume("return").bool()) {
+    val node = Node(NdReturn, lhs = Just(expr())); expect(";")
     node
   }
 
-  // parse "for" statement
-  with override control continue() {
-    consume("for").unjust-or-continue(); expect("(")
+  // "if" statement
+  elif (consume("if").bool()) {
+    expect("(")
+    val cond-expr = expr()
+    expect(")")
+    val then-stmt = stmt()
+    val else-stmt = consume("else").map(fn (_) { stmt() })
+    Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
+  }
+
+  // "while" statement
+  elif (consume("while").bool()) {
+    expect("(")
+    val cond-expr = expr();
+    expect(")")
+    Node(NdWhile, wenn = Just(cond-expr), dann = Just(stmt()))
+  }
+
+  // "for" statement
+  elif (consume("for").bool()) {
+    expect("(")
 
     val init-stmt = consume(";").map(
       fn (_) { Nothing }
@@ -160,175 +190,140 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
     Node(NdFor, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
   }
 
-  // parse "while" statement
-  with override control continue() {
-    consume("while").unjust-or-continue(); expect("(")
-    val cond-expr = expr(); expect(")")
-    Node(NdWhile, wenn = Just(cond-expr), dann = Just(stmt()))
+  // parse block "{" ... "}" statement
+  elif (consume("{").bool()) {
+    var stmts := Nil
+    while { !consume("}").bool() } {
+      stmts := Cons(stmt(), stmts)
+    }
+    stmts := stmts.reverse()
+
+    Node(NdBlock, body = Just(stmts))
   }
 
-  // parse "if" statement
-  with override control continue() {
-    consume("if").unjust-or-continue(); expect("(")
-    val cond-expr = expr(); expect(")")
-    val then-stmt = stmt()
-    val else-stmt = consume("else").map(fn (_) { stmt() })
-    Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
+  // parse expression
+  else {
+    val node = Node(NdExprStmt, lhs = Just(expr()));
+    expect(";")
+    node
   }
-
-  consume("return").unjust-or-continue()
-  val node = Node(NdReturn, lhs = Just(expr())); expect(";")
-  node
 }
 
-// expr = assign
-fun expr( ) : <console, div, exn, read<global>, write<global>> node {
+/*
+expr = assign
+*/
+fun expr( ) : zerteilen node {
   match (!remained-tokens) {
     Cons(_) -> assign()
   }
 }
 
-// assign = equality ("=" assign)?
-fun assign() : <console, div, exn, read<global>, write<global>> node {
+/*
+assign = equality ("=" assign)?
+*/
+fun assign() : zerteilen node {
   val lhs = equality()
-  consume("=").maybe(
-    onNothing = lhs,
-    onJust = fn (_) {
-      Node(kind = NdAssign, lhs = Just(lhs), rhs = Just(assign()))
-    }
-  )
+  if (consume("=").bool())
+  then Node(NdAssign, lhs = Just(lhs), rhs = Just(assign()))
+  else lhs
 }
 
-// equality = relational ("==" relational | "!=" relational)
-fun equality() : <console, div, exn, read<global>, write<global>> node {
-  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
-    fun consume-then-parse( rhs-literal, rhs-kind ) {
-      consume(rhs-literal).unjust-or-continue()
-      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(relational()))
-      parse(node)
-    }
-
-    with control continue() { lhs }
-
-    with override control continue() {
-      consume-then-parse("!=", NdNe)
-    }
-
-    consume-then-parse("==", NdEq)
+/*
+equality = relational ("==" relational | "!=" relational)
+*/
+fun equality() : zerteilen node {
+  fun parse( lhs ) {
+    if (consume("==").bool())
+    then parse(Node(NdEq, lhs = Just(lhs), rhs = Just(relational())))
+    elif (consume("!=").bool())
+    then parse(Node(NdNe, lhs = Just(lhs), rhs = Just(relational())))
+    else lhs
   }
-
   parse(relational())
 }
 
-// relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
+/*
+relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
+*/
 fun relational() : <console, div, exn, read<global>, write<global>> node {
-  fun parse( node ) : <console, div, exn, read<global>, write<global>> node {
-    fun consume-then-parse( literal, kind, switch ) {
-      consume(literal).unjust-or-continue()
-      val other-node = add-or-sub()
-      val new-node = if switch then Node(kind, lhs = Just(other-node), rhs =  Just(node))
-                               else Node(kind, lhs = Just(node), rhs = Just(other-node))
-      parse(new-node)
-    }
-
-    with control continue() { node }
-
-    with override control continue() {
-      consume-then-parse(">=", NdLe, True)
-    }
-
-    with override control continue() {
-      consume-then-parse(">", NdLt, True)
-    }
-
-    with override control continue() {
-      consume-then-parse("<=", NdLe, False)
-    }
-
-    consume-then-parse("<", NdLt, False)
+  fun parse( node ) {
+    if (consume("<").bool())
+    then parse(Node(NdLt, lhs = Just(node), rhs = Just(add-or-sub())))
+    elif (consume("<=").bool())
+    then parse(Node(NdLe, lhs = Just(node), rhs = Just(add-or-sub())))
+    elif (consume(">").bool())
+    then parse(Node(NdLt, lhs = Just(add-or-sub()), rhs = Just(node)))
+    elif (consume(">=").bool())
+    then parse(Node(NdLe, lhs = Just(add-or-sub()), rhs = Just(node)))
+    else node
   }
-
   parse(add-or-sub())
 }
 
-// add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
-fun add-or-sub() : <console, div, exn, read<global>, write<global>> node {
-  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
-    fun consume-then-parse( rhs-literal, rhs-kind ) {
-      consume(rhs-literal).unjust-or-continue()
-      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(mul-or-div()))
-      parse(node)
-    }
-
-    with control continue() { lhs }
-
-    with override control continue() {
-      consume-then-parse("-", NdSub)
-    }
-
-    consume-then-parse("+", NdAdd)
+/*
+add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
+*/
+fun add-or-sub() : zerteilen node {
+  fun parse ( lhs ) {
+    if (consume("+").bool())
+    then parse(Node(NdAdd, lhs = Just(lhs), rhs = Just(mul-or-div())))
+    elif (consume("-").bool())
+    then parse(Node(NdSub, lhs = Just(lhs), rhs = Just(mul-or-div())))
+    else lhs
   }
-
   parse(mul-or-div())
 }
 
-// mul-or-div = unary ('*' unary | '/' unary)
-fun mul-or-div() : <console, div, exn, read<global>, write<global>> node {
-  fun parse( lhs ) : <console, div, exn, read<global>, write<global>> node {
-    fun consume-then-parse( rhs-literal, rhs-kind ) {
-      consume(rhs-literal).unjust-or-continue()
-      val node = Node(kind = rhs-kind, lhs = Just(lhs), rhs = Just(unary()))
-      parse(node)
-    }
-
-    with control continue() { lhs }
-
-    with override control continue() {
-      consume-then-parse("/", NdDiv)
-    }
-
-    consume-then-parse("*", NdMul)
+/*
+mul-or-div = unary ('*' unary | '/' unary)
+*/
+fun mul-or-div() : zerteilen node {
+  fun parse( lhs ) : zerteilen node {
+    if (consume("*").bool())
+    then parse(Node(NdMul, lhs = Just(lhs), rhs = Just(unary())))
+    elif (consume("/").bool())
+    then parse(Node(NdDiv, lhs = Just(lhs), rhs = Just(unary())))
+    else lhs
   }
-
   parse(unary())
 }
 
-// unary = ('+' | '-')? unary
-//       | primary
-fun unary ( ) : <console, div, exn, read<global>, write<global>> node {
-  with control continue() {
-    primary()
-  }
-
-  with override control continue() {
-    consume("-").unjust-or-continue()
-    Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(unary()))
-  }
-
-  consume("+").unjust-or-continue()
-  unary()
+/*
+unary = ('+' | '-')? unary
+      | primary
+*/
+fun unary ( ) : zerteilen node {
+  if (consume("+").bool())
+  then unary()
+  elif (consume("-").bool())
+  then Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(unary()))
+  else primary()
 }
 
-// primary = '(' expr ')' | ident | num
-fun primary() : <console, div, exn, read<global>, write<global>> node {
-  with control continue() {
-    Node(NdNum, value = Just(expect-number()))
+/*
+primary = '(' expr ')' | ident | num
+*/
+fun primary() : zerteilen node {
+  if (consume("(").bool())
+  then {
+    val node = expr()
+    expect(")")
+    node
   }
+  else {
+    match (consume-ident()) {
+      Just(token) -> {
+        val a-var = try { find-variable(token).unjust } fn (_) {
+          val v = Variable(name = token.literal.unjust().string())
+          local-variables := Cons(v, !local-variables)
+          v
+        }
+        Node(NdVar, variable = Just(a-var))
+      }
 
-  with override control continue() {
-    val token = consume-ident().unjust-or-continue()
-    val new-or-existing-var = try { find-variable(token).unjust } fn (_) {
-      val v = Variable(name = token.literal.unjust().string())
-      local-variables := Cons(v, !local-variables)
-      v
+      _ -> Node(NdNum, value = Just(expect-number()))
     }
-
-    Node(NdVar, variable = Just(new-or-existing-var))
   }
-
-  consume("(").unjust-or-continue()
-  val node = expr(); expect(")")
-  node
 }
 
 // Consume the current token if it matches `op`.
