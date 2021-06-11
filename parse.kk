@@ -25,6 +25,7 @@ public type node-kind {
   NdWhile     // "while"
   NdFor       // "for"
   NdBlock     // { ... }
+  NdFunCall   // function call
   NdExprStmt  // expression statement
   NdVar       // variable
   NdNum       // Integer
@@ -37,18 +38,19 @@ public struct node {
   lhs : maybe<node> = Nothing
   rhs : maybe<node> = Nothing
 
-  // "if", "while" or "for" statement
-  wenn : maybe<node> = Nothing          // condition expression
-  dann : maybe<node> = Nothing          // then statement
-  sonst : maybe<node> = Nothing         // else statement
-  init : maybe<node> = Nothing          // initial statement
-  inc : maybe<node> = Nothing           // increment statement
+  // "if", "while" or "for"
+  wenn : maybe<node> = Nothing                // condition expression
+  dann : maybe<node> = Nothing                // then statement
+  sonst : maybe<node> = Nothing               // else statement
+  init : maybe<node> = Nothing                // initial statement
+  inc : maybe<node> = Nothing                 // increment statement
 
-  // block
-  body: maybe<list<node>> = Nothing     // statement block
+  body: maybe<list<node>> = Nothing           // statement block
 
-  variable : maybe<variable> = Nothing  // used if kind is NdVar
-  value : maybe<int> = Nothing          // used if kind is NdNum
+  fcname : maybe<string> = Nothing            // function call
+
+  variable : maybe<variable> = Nothing        // used if kind is NdVar
+  value : maybe<int> = Nothing                // used if kind is NdNum
 }
 
 // For debugging.
@@ -68,6 +70,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdWhile -> "while statement"
     NdFor -> "for statement"
     NdBlock -> "block statement"
+    NdFunCall -> "function call"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
     NdNum -> "integer"
@@ -203,8 +206,7 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
 
   // parse expression
   else {
-    val node = Node(NdExprStmt, lhs = Just(expr()));
-    expect(";")
+    val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
     node
   }
 }
@@ -301,24 +303,33 @@ fun unary ( ) : zerteilen node {
 }
 
 /*
-primary = '(' expr ')' | ident | num
+primary = '(' expr ')' | ident args? | num
+args = "(" ")"
 */
 fun primary() : zerteilen node {
   if (consume("(").bool())
   then {
-    val node = expr()
-    expect(")")
+    val node = expr(); expect(")")
     node
   }
   else {
-    match (consume-ident()) {
+    match (consume-identifier()) {
       Just(token) -> {
-        val a-var = try { find-variable(token).unjust } fn (_) {
-          val v = Variable(name = token.literal.unjust().string())
-          local-variables := Cons(v, !local-variables)
-          v
+        if (consume("(").bool())
+        // Function call
+        then {
+          expect(")")
+          Node(NdFunCall, fcname = Just(token.literal.unjust().string()))
         }
-        Node(NdVar, variable = Just(a-var))
+        // Variable
+        else {
+          val a-var = try { find-variable(token).unjust } fn (_) {
+            val v = Variable(name = token.literal.unjust().string())
+            local-variables := Cons(v, !local-variables)
+            v
+          }
+          Node(NdVar, variable = Just(a-var))
+        }
       }
 
       _ -> Node(NdNum, value = Just(expect-number()))
@@ -342,7 +353,7 @@ fun consume( op : string ) : <console> maybe<()> {
 }
 
 // Consume the current token if it is an identifier
-fun consume-ident() : <console> maybe<token> {
+fun consume-identifier() : <console> maybe<token> {
   try {
     match (!remained-tokens) {
       Cons(token, tokens) -> {

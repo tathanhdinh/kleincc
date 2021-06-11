@@ -178,6 +178,14 @@ fun gen( node : node ) : <console, div, exn> () {
       body.foreach(gen)
     }
 
+    Node(NdFunCall, fcname = Just(fcname)) -> {
+      println(
+        "extern " ++ fcname ++ "\n" ++
+        "  call " ++ fcname ++ "\n" ++
+        "  push rax"
+      )
+    }
+
     Node(NdReturn, lhs = Just(lhs)) -> {
       gen(lhs)
 

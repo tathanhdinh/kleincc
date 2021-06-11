@@ -4,6 +4,13 @@ cc="zig cc -Wno-unused-command-line-argument"
 asm="nasm -felf64"
 link="ld.lld --discard-all --strip-all --pie --entry main"
 
+# cat <<EOF |
+clang -xc -c -o tmp2.o - << EOF
+int ret3() { return 3; }
+int ret5() { return 5; }
+int ret19() { return 19; }
+EOF
+
 assert() {
 	expected="$1"
 	input="$2"
@@ -11,7 +18,7 @@ assert() {
 	./out/kleincc "$input" > tmp.asm
 	$asm tmp.asm -o tmp.o
 	# $cc tmp.o -o tmp
-	$link tmp.o -o tmp
+	$link tmp.o tmp2.o -o tmp
 	./tmp
 	actual="$?"
 
@@ -95,5 +102,9 @@ assert 82 'i = 11; j = i-9; for(; j < 10; j=j+9) i = i + 71; return i ;'
 assert 3 '{1; {2;} return 3;}'
 assert 55 'i=0; j=0; while(i<=10) {j=i+j; i=i+1;} return j;'
 assert 0 'a=0; b=1; while (a+b > 0) {a = a - 1;} return 0;'
+
+assert 3 'return ret3();'
+assert 5 'return ret5();'
+assert 90 'i = 089; i = i + 1; return i; return ret19();'
 
 echo ok
