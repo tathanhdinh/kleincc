@@ -48,6 +48,10 @@ public struct node {
   body: maybe<list<node>> = Nothing           // statement block
 
   fcname : maybe<string> = Nothing            // function call
+  fcargs : maybe<list<node>> = Nothing        // function call arguments (I want to distinguish
+                                              // Nothing from Nil: Nothing is used when the node
+                                              // is not a function call, Nil is used when the node
+                                              // is a function call, but with no argument)
 
   variable : maybe<variable> = Nothing        // used if kind is NdVar
   value : maybe<int> = Nothing                // used if kind is NdNum
@@ -149,9 +153,7 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
 
   // "if" statement
   elif (consume("if").bool()) {
-    expect("(")
-    val cond-expr = expr()
-    expect(")")
+    expect("("); val cond-expr = expr(); expect(")")
     val then-stmt = stmt()
     val else-stmt = consume("else").map(fn (_) { stmt() })
     Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
@@ -303,8 +305,23 @@ fun unary ( ) : zerteilen node {
 }
 
 /*
-primary = '(' expr ')' | ident args? | num
-args = "(" ")"
+func-args = "(" (assign (",", assign)*)? ")"
+*/
+fun func-args() : zerteilen list<node> {
+  if (consume(")").bool())
+  then Nil
+  else {
+    var args := [assign()]
+    while { consume(",").bool() } {
+      args := Cons(assign(), args)
+    }
+    expect(")"); args := args.reverse()
+    args
+  }
+}
+
+/*
+primary = '(' expr ')' | ident func-args? | num
 */
 fun primary() : zerteilen node {
   if (consume("(").bool())
@@ -318,8 +335,8 @@ fun primary() : zerteilen node {
         if (consume("(").bool())
         // Function call
         then {
-          expect(")")
-          Node(NdFunCall, fcname = Just(token.literal.unjust().string()))
+          val fcname = token.literal.unjust().string()
+          Node(NdFunCall, fcname = Just(fcname), fcargs = Just(func-args()))
         }
         // Variable
         else {

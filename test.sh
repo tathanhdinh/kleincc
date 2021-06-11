@@ -9,6 +9,13 @@ clang -xc -c -o tmp2.o - << EOF
 int ret3() { return 3; }
 int ret5() { return 5; }
 int ret19() { return 19; }
+int add(int x, int y) { return x+y; }
+int sub(int x, int y) { return x-y; }
+int mul(int x, int y) { return x*y; }
+
+int add6(int a, int b, int c, int d, int e, int f) {
+  return a+b+c+d+e+f;
+}
 EOF
 
 assert() {
@@ -106,5 +113,9 @@ assert 0 'a=0; b=1; while (a+b > 0) {a = a - 1;} return 0;'
 assert 3 'return ret3();'
 assert 5 'return ret5();'
 assert 90 'i = 089; i = i + 1; return i; return ret19();'
+assert 8 'return add(3, 5);'
+assert 2 'return sub(5, 3);'
+assert 27 'return mul(3+4+5-1-2, 2+1);'
+assert 21 'return add6(1,2,3,4,5,6);'
 
 echo ok

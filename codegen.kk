@@ -4,6 +4,8 @@ import parse
 import tokenize
 
 private noinline val label-seq = unsafe-total { ref(0) }
+private noinline val arg-reg = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+
 private noinline val local-variables = unsafe-total { ref(Nil) }
 
 // Push the given node address to the stack.
@@ -178,7 +180,17 @@ fun gen( node : node ) : <console, div, exn> () {
       body.foreach(gen)
     }
 
-    Node(NdFunCall, fcname = Just(fcname)) -> {
+    Node(NdFunCall, fcname = Just(fcname), fcargs = Just(fcargs)) -> {
+      if (!fcargs.is-empty()) {
+        fcargs.foreach(gen)
+        val args-idx-bound = fcargs.length() - 1
+        fcargs.foreach-indexed(fn (i, _) {
+          println(
+            "pop " ++ arg-reg[args-idx-bound - i].unjust()
+          )
+        })
+      }
+
       println(
         "extern " ++ fcname ++ "\n" ++
         "  call " ++ fcname ++ "\n" ++
@@ -265,7 +277,6 @@ public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
   )
 
   local-variables := prog.locals
-  // prog.nodes.foreach fn(node) { gen(node) }
   prog.nodes.foreach(gen)
 
   // Epilogue
