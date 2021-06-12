@@ -186,14 +186,20 @@ fun gen( node : node ) : <console, div, exn> () {
         val args-idx-bound = fcargs.length() - 1
         fcargs.foreach-indexed(fn (i, _) {
           println(
-            "pop " ++ arg-reg[args-idx-bound - i].unjust()
+            "  pop " ++ arg-reg[args-idx-bound - i].unjust()
           )
         })
       }
 
+      // Align RSP to a 16 byte boundary before calling a function: x86-64 ABI
+      // https://stackoverflow.com/questions/9592345
       println(
+        "  push rsp\n" ++
+        "  push rsp\n" ++
+        "  and rsp, -0x10\n" ++
         "extern " ++ fcname ++ "\n" ++
         "  call " ++ fcname ++ "\n" ++
+        "  mov rsp, [rsp+0x8]\n" ++
         "  push rax"
       )
     }
