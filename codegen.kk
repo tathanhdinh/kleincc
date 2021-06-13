@@ -1,15 +1,16 @@
 module codegen
 
+import support
 import parse
 import tokenize
 
-private noinline val label-seq = unsafe-total { ref(0) }
-private noinline val arg-reg = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+private val arg-reg = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 
-private noinline val local-variables = unsafe-total { ref(Nil) }
+private noinline val label-seq = unsafe-total { ref(0) }
+private noinline val func-name = unsafe-total { ref(Nothing) }
 
 // Push the given node address to the stack.
-fun gen-addr( node : node ) : <console, exn> () {
+fun gen-addr( node : node ) : <console, exn, read<global>> () {
   val locals = !local-variables
 
   match (node) {
@@ -44,7 +45,7 @@ fun store() : <console> () {
 }
 
 // Generate code for a given node.
-fun gen( node : node ) : <console, div, exn> () {
+fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
   match (node) {
     Node(NdNum, value = Just(value)) ->
       println(
@@ -64,8 +65,8 @@ fun gen( node : node ) : <console, div, exn> () {
       gen-addr(node); load()
     }
 
-    Node(NdAssign, lhs = Just(linke-seite), rhs = Just(rechte-seite)) -> {
-      gen-addr(linke-seite); gen(rechte-seite); store()
+    Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
+      gen-addr(lhs); gen(rhs); store()
     }
 
     Node(NdIf, wenn = Just(wenn), dann = Just(dann)) -> {
@@ -210,13 +211,13 @@ fun gen( node : node ) : <console, div, exn> () {
       // Pop the stored result.
       println(
         "  pop rax\n" ++
-        "  jmp .L.return"
+        "  jmp .L.return." ++ (!func-name).unjust()
       )
     }
 
-    Node(kind, lhs = Just(linke-seite), rhs = Just(rechte-seite)) -> {
-      gen(linke-seite)
-      gen(rechte-seite)
+    Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
+      gen(lhs)
+      gen(rhs)
 
       println(
         "  pop rdi\n" ++ // rechte seite
@@ -268,34 +269,53 @@ fun gen( node : node ) : <console, div, exn> () {
   }
 }
 
-public fun codegen( prog : funktion ) : <console, div, exn, read<global>> () {
+public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, write<global>> () {
+  val constructor-label = "start"
+  val destructor-label = "fini"
+
+  println("section .smc alloc write exec align=16")
+
+  // constructor
   println(
-    "global main\n" ++
-    "section .smc alloc write exec align=16\n" ++
-    "main:"
+    "global " ++ constructor-label ++ "\n" ++
+    constructor-label ++ ":" ++ "\n" ++
+    "  lea rax, [rel " ++ destructor-label ++ "]\n" ++
+    "  push rax\n" ++
+    "  jmp main"
   )
 
-  // Prologue
-  println(
-    "  push rbp\n" ++
-    "  mov rbp, rsp\n" ++
-    "  sub rsp, 208"  // 208 = 26 * 8
-  )
+  prog.foreach(fn (f) {
+    println(
+      // "global " ++ f.name ++ "\n" ++
+      f.name ++ ":"
+    )
+    func-name := Just(f.name)
 
-  local-variables := prog.locals
-  prog.nodes.foreach(gen)
+    // Prologue
+    println(
+      "  push rbp\n" ++
+      "  mov rbp, rsp\n" ++
+      "  sub rsp, " ++ f.stacksize.show()
+    )
 
-  // Epilogue
-  println(
-    ".L.return:\n" ++
-    "  mov rsp, rbp\n" ++
-    "  pop rbp"
-  )
+    // Emit code
+    f.nodes.foreach(gen)
 
-  // The result has been popped into RAX,
-  // so move it to RDI to make it the program exit code.
-  // Then pass 60 to RAX to invoke sys_exit
+    // Epilogue
+    println(
+      ".L.return." ++ f.name ++ ":\n" ++
+      "  mov rsp, rbp\n" ++
+      "  pop rbp\n" ++
+      "  ret"
+    )
+  })
+
+  // destructor
+  // The result has been popped into rax,
+  // so move it to rdi to make it the program exit code.
+  // Then pass 60 to rax to invoke sys_exit
   println(
+    destructor-label ++ ":\n" ++
     "  mov rdi, rax\n" ++
     "  mov rax, 60\n" ++
     "  syscall"

@@ -2,19 +2,6 @@ module tokenize
 
 import support
 
-// Reports an error
-public fun error( msg : string ) : exn a {
-  throw("error: " ++ msg)
-}
-
-// Report an error with location information.
-public fun error-at( literal : sslice, msg : string ) : exn a {
-  val before-ltr = literal.before()
-  val input = before-ltr.before().after()
-  val error-msg = input.string() ++ "\n" ++ " ".repeat(before-ltr.count()) ++ "^ error: " ++ msg
-  throw(error-msg)
-}
-
 // Token
 public type token-kind {
   TokReserved     // keywords or punctuators
@@ -49,6 +36,91 @@ public fun show( tok : token, indent : int = 0 ) : <console> string {
   )
 
   "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
+}
+
+public noinline val remained-tokens = unsafe-total { ref(Nil) }
+
+// Consume the current token if it matches `op`.
+public fun consume( op : string ) : <console> maybe<()> {
+  match (!remained-tokens) {
+    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
+      if (op == literal.string())
+      then {
+        remained-tokens := tokens
+        Just(())
+      }
+      else Nothing
+
+    _ -> Nothing
+  }
+}
+
+// Ensure that the current token is TokIdent.
+public fun expect-ident() : <exn> sslice {
+  match (!remained-tokens) {
+    Cons(token, tokens) -> {
+      match (token) {
+        Token(TokIdent, literal = Just(ident)) -> {
+          remained-tokens := tokens
+          ident
+        }
+
+        Token(literal = Just(literal)) -> error-at(literal, "expected an identifier")
+      }
+    }
+  }
+}
+
+// Ensure that the current token is `op`.
+public fun expect( op : string ) : <exn> () {
+  match (!remained-tokens) {
+    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
+        if (op == literal.string())
+        then remained-tokens := tokens
+        else error-at(literal, "expected " ++ op)
+
+    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected " ++ op)
+  }
+}
+
+// Ensure that the current token is TokNumber.
+public fun expect-number() : <exn> int {
+  match (!remained-tokens) {
+    Cons(Token(TokNumber, value = Just(num), literal = Just(_)), tokens) -> {
+      remained-tokens := tokens
+      num
+    }
+
+    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected a number")
+  }
+}
+
+
+
+// Consume the current token if it is an identifier
+public fun consume-ident() : <console> maybe<token> {
+  try {
+    match (!remained-tokens) {
+      Cons(token, tokens) -> {
+        match (token) {
+          Token(TokIdent) -> {
+            remained-tokens := tokens
+            Just(token)
+          }
+        }
+      }
+    }
+  } fn (_) { Nothing }
+}
+
+public fun at-eof() : bool {
+  match (!remained-tokens) {
+    Cons(Token(TokEof)) -> True
+
+    Cons(_) -> False
+
+    _ -> True
+  }
 }
 
 // Tokenize input and returns tokens

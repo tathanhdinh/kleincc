@@ -104,13 +104,13 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 }
 
 public struct funktion {
+  name : string
   nodes : list<node>
-  locals : list<variable>
-  stack-size : int
+  locals : ref<global, list<variable>> = local-variables
+  stacksize : int = 0
 }
 
-private noinline val remained-tokens = unsafe-total { ref(Nil) }
-private noinline val local-variables = unsafe-total { ref(Nil) }
+public noinline val local-variables : ref<global, list<variable>> = unsafe-total { ref(Nil) }
 
 alias zerteilen = <console, div, exn, read<global>, write<global>>
 
@@ -124,16 +124,31 @@ fun find-variable( token : token ) : <read<global>> maybe<variable> {
 }
 
 /*
- program = stmt*
+ program = function*
  */
-public fun program( tokens : list<token> ) : zerteilen funktion {
-  fun parse( nodes ) {
-    if (at-eof()) then nodes else parse(Cons(stmt(), nodes))
+public fun program( tokens : list<token> ) : zerteilen list<funktion> {
+  remained-tokens := tokens
+
+  var funktionen := Nil
+  while { !at-eof() } {
+    funktionen := Cons(eine-funktion(), funktionen)
+  }
+  funktionen.reverse()
+}
+
+/*
+function = ident "(" ")" "{" stmt* "}"
+*/
+fun eine-funktion() : zerteilen funktion {
+  val name = expect-ident()
+  expect("("); expect(")"); expect("{")
+
+  var stmts := Nil
+  while { !consume("}").bool() } {
+    stmts := Cons(stmt(), stmts)
   }
 
-  remained-tokens := tokens
-  val nodes = parse(Nil)
-  Funktion(nodes.reverse(), locals = (!local-variables).reverse(), stack-size = 0)
+  Funktion(name.string(), stmts.reverse())
 }
 
 /*
@@ -330,7 +345,7 @@ fun primary() : zerteilen node {
     node
   }
   else {
-    match (consume-identifier()) {
+    match (consume-ident()) {
       Just(token) -> {
         if (consume("(").bool())
         // Function call
@@ -351,70 +366,5 @@ fun primary() : zerteilen node {
 
       _ -> Node(NdNum, value = Just(expect-number()))
     }
-  }
-}
-
-// Consume the current token if it matches `op`.
-fun consume( op : string ) : <console> maybe<()> {
-  match (!remained-tokens) {
-    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
-      if (op == literal.string())
-      then {
-        remained-tokens := tokens
-        Just(())
-      }
-      else Nothing
-
-    _ -> Nothing
-  }
-}
-
-// Consume the current token if it is an identifier
-fun consume-identifier() : <console> maybe<token> {
-  try {
-    match (!remained-tokens) {
-      Cons(token, tokens) -> {
-        match (token) {
-          Token(TokIdent) -> {
-            remained-tokens := tokens
-            Just(token)
-          }
-        }
-      }
-    }
-  } fn (_) { Nothing }
-}
-
-// Ensure that the current token is TokNumber.
-fun expect-number() : <exn> int {
-  match (!remained-tokens) {
-    Cons(Token(TokNumber, value = Just(num), literal = Just(_)), tokens) -> {
-      remained-tokens := tokens
-      num
-    }
-
-    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected a number")
-  }
-}
-
-// Ensure that the current token is `op`.
-fun expect( op : string ) : <exn> () {
-  match (!remained-tokens) {
-    Cons(Token(TokReserved, literal = Just(literal)), tokens) ->
-        if (op == literal.string())
-        then remained-tokens := tokens
-        else error-at(literal, "expected " ++ op)
-
-    Cons(Token(literal = Just(literal))) -> error-at(literal, "expected " ++ op)
-  }
-}
-
-fun at-eof() : bool {
-  match (!remained-tokens) {
-    Cons(Token(TokEof)) -> True
-
-    Cons(_) -> False
-
-    _ -> True
   }
 }
