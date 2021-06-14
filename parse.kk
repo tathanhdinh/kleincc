@@ -105,18 +105,20 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 
 public struct funktion {
   name : string
+  params : list<variable>
   nodes : list<node>
-  locals : ref<global, list<variable>> = local-variables
+  locals : list<variable>
   stacksize : int = 0
 }
 
-public noinline val local-variables : ref<global, list<variable>> = unsafe-total { ref(Nil) }
+public noinline val local-vars : ref<global, list<variable>> = unsafe-total { ref(Nil) }
+public noinline val defined-func-names : ref<global, list<string>> = unsafe-total { ref(Nil) }
+public noinline val used-func-names : ref<global, list<string>> = unsafe-total { ref(Nil) }
 
 alias zerteilen = <console, div, exn, read<global>, write<global>>
 
 fun find-variable( token : token ) : <read<global>> maybe<variable> {
-  val vars = !local-variables
-  vars.find(fn (v) {
+  (!local-vars).find(fn (v) {
     token.literal.maybe(
       onNothing = False,
       onJust = fn (l) { l.string() == v.name })
@@ -136,19 +138,39 @@ public fun program( tokens : list<token> ) : zerteilen list<funktion> {
   funktionen.reverse()
 }
 
+fun func-params() : zerteilen list<variable> {
+  if (consume(")").bool())
+  then Nil
+  else {
+    var params := [Variable(expect-ident().string())]
+    while { !consume(")").bool() } {
+      expect(",")
+      val param = Variable(expect-ident().string())
+      params := Cons(param, params)
+      local-vars := Cons(param, !local-vars)
+    }
+    params
+  }
+}
+
 /*
-function = ident "(" ")" "{" stmt* "}"
+function = ident "(" params? ")" "{" stmt* "}"
+params   = ident ("," ident)*
 */
 fun eine-funktion() : zerteilen funktion {
-  val name = expect-ident()
-  expect("("); expect(")"); expect("{")
+  // reset local variables
+  local-vars := Nil
+
+  val name = expect-ident().string(); expect("(")
+  val params = func-params(); expect("{")
 
   var stmts := Nil
   while { !consume("}").bool() } {
     stmts := Cons(stmt(), stmts)
   }
 
-  Funktion(name.string(), stmts.reverse())
+  defined-func-names := Cons(name, !defined-func-names)
+  Funktion(name, params, stmts.reverse(), !local-vars)
 }
 
 /*
@@ -351,13 +373,17 @@ fun primary() : zerteilen node {
         // Function call
         then {
           val fcname = token.literal.unjust().string()
+
+          if (!(!used-func-names).find(fn (name) { name == fcname}).bool())
+          then used-func-names := Cons(fcname, !used-func-names)
+
           Node(NdFunCall, fcname = Just(fcname), fcargs = Just(func-args()))
         }
         // Variable
         else {
           val a-var = try { find-variable(token).unjust } fn (_) {
             val v = Variable(name = token.literal.unjust().string())
-            local-variables := Cons(v, !local-variables)
+            local-vars := Cons(v, !local-vars)
             v
           }
           Node(NdVar, variable = Just(a-var))

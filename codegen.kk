@@ -11,14 +11,11 @@ private noinline val func-name = unsafe-total { ref(Nothing) }
 
 // Push the given node address to the stack.
 fun gen-addr( node : node ) : <console, exn, read<global>> () {
-  val locals = !local-variables
-
   match (node) {
     Node(NdVar, variable = Just(Variable(name = var-name))) -> {
-      val v = locals.find(fn (v) { v.name == var-name }).unjust()
-      val offset = v.offset.unjust()
+      val v = (!local-vars).find(fn (v) { v.name == var-name }).unjust()
       println(
-        "  lea rax, [rbp - " ++ offset.show() ++ "]\n" ++
+        "  lea rax, [rbp - " ++ v.offset.unjust().show() ++ "]\n" ++
         "  push rax"
       )
     }
@@ -196,9 +193,9 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
       // https://stackoverflow.com/questions/9592345
       println(
         "  push rsp\n" ++
-        "  push rsp\n" ++
+        "  push qword [rsp]\n" ++
         "  and rsp, -0x10\n" ++
-        "extern " ++ fcname ++ "\n" ++
+        // "extern " ++ fcname ++ "\n" ++
         "  call " ++ fcname ++ "\n" ++
         "  mov rsp, [rsp+0x8]\n" ++
         "  push rax"
@@ -270,10 +267,18 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
 }
 
 public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, write<global>> () {
+  val extern-func-names = (!used-func-names).filter(fn (uname) {
+    !(!defined-func-names).find(fn (dname) { dname == uname }).bool()
+  })
+
   val constructor-label = "start"
   val destructor-label = "fini"
 
   println("section .smc alloc write exec align=16")
+
+  // extern names
+  if (!extern-func-names.is-empty())
+  then println("extern " ++ extern-func-names.join(","))
 
   // constructor
   println(
@@ -298,7 +303,15 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
       "  sub rsp, " ++ f.stacksize.show()
     )
 
+    // Push arguments to the stack
+    f.params.foreach-indexed(fn (i, v) {
+      println(
+        "  mov [rbp - " ++ v.offset.unjust().show() ++ "], " ++ arg-reg[i].unjust()
+      )
+    })
+
     // Emit code
+    local-vars := f.locals
     f.nodes.foreach(gen)
 
     // Epilogue
