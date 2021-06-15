@@ -21,21 +21,16 @@ fun main() : <console, div, ndet, read<global>, write<global>> int {
   try {
     // Tokenize and parse.
     val tokens = tokenize/tokenize(input)
-    val programm = parse/program(tokens)
-
-    val programm = programm.map(fn (fk) {
-      fk(
-        stacksize = fk.locals.length() * 8,
-        locals = fk.locals.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) }),
-        params = fk.params.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) })
-      )
-    })
-
-    // programm.foreach(fn (fc) {
-    //   val locals = fc.locals
-    //   locals := (!locals).map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) })
-    // })
-    // val programm = programm.map(fn (fc) { fc(stacksize = (!fc.locals).length() * 8) })
+    val programm = {
+      val prog = parse/program(tokens)
+      prog.map(fn (fk) {
+        fk(
+          stacksize = fk.locals.length() * 8,
+          locals = fk.locals.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) }),
+          params = fk.params.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) })
+        )
+      })
+    }
 
     // Traverse the AST to emit assembly.
     codegen/codegen(programm)

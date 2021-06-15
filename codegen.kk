@@ -20,7 +20,7 @@ fun gen-addr( node : node ) : <console, exn, read<global>> () {
       )
     }
 
-    _ -> error("not a lvalue")
+    _ -> error-token(node.token, "not a lvalue")
   }
 }
 
@@ -291,7 +291,6 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
 
   prog.foreach(fn (f) {
     println(
-      // "global " ++ f.name ++ "\n" ++
       f.name ++ ":"
     )
     func-name := Just(f.name)
@@ -299,9 +298,13 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
     // Prologue
     println(
       "  push rbp\n" ++
-      "  mov rbp, rsp\n" ++
-      "  sub rsp, " ++ f.stacksize.show()
+      "  mov rbp, rsp"
     )
+    if (f.stacksize != 0) {
+      println(
+        "  sub rsp, " ++ f.stacksize.show()
+      )
+    }
 
     // Push arguments to the stack
     f.params.foreach-indexed(fn (i, v) {

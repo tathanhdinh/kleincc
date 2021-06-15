@@ -34,6 +34,7 @@ public type node-kind {
 // AST node type.
 public struct node {
   kind : node-kind
+  token : token = unsafe-total { (!last-consumed-token).unjust() }
 
   lhs : maybe<node> = Nothing
   rhs : maybe<node> = Nothing
@@ -184,28 +185,40 @@ stmt = "return" expr ";"
 fun stmt() : <console, div, exn, read<global>, write<global>> node {
   // "return" statement
   if (consume("return").bool()) {
-    val node = Node(NdReturn, lhs = Just(expr())); expect(";")
+    val node = Node(NdReturn, lhs = Just(expr()))
+    expect(";")
     node
   }
 
   // "if" statement
   elif (consume("if").bool()) {
-    expect("("); val cond-expr = expr(); expect(")")
+    val token = (!last-consumed-token).unjust()
+
+    expect("(")
+    val cond-expr = expr()
+    expect(")")
+
     val then-stmt = stmt()
     val else-stmt = consume("else").map(fn (_) { stmt() })
-    Node(NdIf, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
+
+    Node(NdIf, token, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
   }
 
   // "while" statement
   elif (consume("while").bool()) {
+    val token = (!last-consumed-token).unjust()
+
     expect("(")
-    val cond-expr = expr();
+    val cond-expr = expr()
     expect(")")
-    Node(NdWhile, wenn = Just(cond-expr), dann = Just(stmt()))
+
+    Node(NdWhile, token, wenn = Just(cond-expr), dann = Just(stmt()))
   }
 
   // "for" statement
   elif (consume("for").bool()) {
+    val token = (!last-consumed-token).unjust()
+
     expect("(")
 
     val init-stmt = consume(";").map(
@@ -229,23 +242,26 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
       Just(node)
     })
 
-    Node(NdFor, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
+    Node(NdFor, token, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
   }
 
   // parse block "{" ... "}" statement
   elif (consume("{").bool()) {
+    val token = (!last-consumed-token).unjust()
+
     var stmts := Nil
     while { !consume("}").bool() } {
       stmts := Cons(stmt(), stmts)
     }
     stmts := stmts.reverse()
 
-    Node(NdBlock, body = Just(stmts))
+    Node(NdBlock, token, body = Just(stmts))
   }
 
   // parse expression
   else {
-    val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
+    val node = Node(NdExprStmt, lhs = Just(expr()));
+    expect(";")
     node
   }
 }
@@ -286,8 +302,8 @@ fun equality() : zerteilen node {
 /*
 relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
 */
-fun relational() : <console, div, exn, read<global>, write<global>> node {
-  fun parse( node ) {
+fun relational() : zerteilen node {
+  fun parse( node ) : zerteilen node {
     if (consume("<").bool())
     then parse(Node(NdLt, lhs = Just(node), rhs = Just(add-or-sub())))
     elif (consume("<=").bool())
@@ -305,7 +321,7 @@ fun relational() : <console, div, exn, read<global>, write<global>> node {
 add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
 */
 fun add-or-sub() : zerteilen node {
-  fun parse ( lhs ) {
+  fun parse ( lhs ) : zerteilen node {
     if (consume("+").bool())
     then parse(Node(NdAdd, lhs = Just(lhs), rhs = Just(mul-or-div())))
     elif (consume("-").bool())
@@ -377,7 +393,7 @@ fun primary() : zerteilen node {
           if (!(!used-func-names).find(fn (name) { name == fcname}).bool())
           then used-func-names := Cons(fcname, !used-func-names)
 
-          Node(NdFunCall, fcname = Just(fcname), fcargs = Just(func-args()))
+          Node(NdFunCall, token, fcname = Just(fcname), fcargs = Just(func-args()))
         }
         // Variable
         else {
