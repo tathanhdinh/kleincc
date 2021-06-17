@@ -1,7 +1,5 @@
 module tokenize
 
-import support
-
 // Token
 public type token-kind {
   TokReserved     // keywords or punctuators
@@ -240,7 +238,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   fun is-punct( c ) {
     c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' ||
       c == '<' || c == '>' || c == '=' || c == '{' || c == '}' || c == ';' ||
-      c == ','
+      c == ',' || c == '&'
   }
 
   fun starts-with-number( slice ) {

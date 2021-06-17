@@ -1,6 +1,5 @@
 module codegen
 
-import support
 import parse
 import tokenize
 
@@ -10,7 +9,7 @@ private noinline val label-seq = unsafe-total { ref(0) }
 private noinline val func-name = unsafe-total { ref(Nothing) }
 
 // Push the given node address to the stack.
-fun gen-addr( node : node ) : <console, exn, read<global>> () {
+fun gen-addr( node : node ) : <console, div, exn, read<global>, write<global>> () {
   match (node) {
     Node(NdVar, variable = Just(Variable(name = var-name))) -> {
       val v = (!local-vars).find(fn (v) { v.name == var-name }).unjust()
@@ -18,6 +17,10 @@ fun gen-addr( node : node ) : <console, exn, read<global>> () {
         "  lea rax, [rbp - " ++ v.offset.unjust().show() ++ "]\n" ++
         "  push rax"
       )
+    }
+
+    Node(NdDeref, lhs = Just(lhs)) ->{
+      gen(lhs)
     }
 
     _ -> error-token(node.token, "not a lvalue")
@@ -64,6 +67,14 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
 
     Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
       gen-addr(lhs); gen(rhs); store()
+    }
+
+    Node(NdAddr, lhs = Just(lhs)) -> {
+      gen-addr(lhs)
+    }
+
+    Node(NdDeref, lhs = Just(lhs)) -> {
+      gen(lhs); load()
     }
 
     Node(NdIf, wenn = Just(wenn), dann = Just(dann)) -> {

@@ -1,6 +1,5 @@
 module parse
 
-import support
 import tokenize
 
 // Local variable
@@ -20,6 +19,8 @@ public type node-kind {
   NdLt        // <
   NdLe        // <=
   NdAssign    // =
+  NdAddr      // unary &
+  NdDeref     // unary *
   NdReturn    // "return"
   NdIf        // "if"
   NdWhile     // "while"
@@ -70,6 +71,8 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdLt -> "<"
     NdLe -> "<="
     NdAssign -> "assignment"
+    NdAddr -> "address of"
+    NdDeref -> "dereference"
     NdReturn -> "return keyword"
     NdIf -> "if statement"
     NdWhile -> "while statement"
@@ -221,26 +224,21 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
 
     expect("(")
 
-    val init-stmt = consume(";").map(
-      fn (_) { Nothing }
-    ).unjust-or({
+    val init-stmt = if (consume(";").bool()) then Nothing else {
       val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
       Just(node)
-    })
+    }
 
-    val cond-expr = consume(";").map(
-      fn (_) { Nothing }
-    ).unjust-or({
-      val node = expr(); expect(";")
+    val cond-expr = if (consume(";").bool()) then Nothing else {
+      val node = expr();
+      expect(";")
       Just(node)
-    })
+    }
 
-    val inc-stmt = consume(")").map(
-      fn (_) { Nothing }
-    ).unjust-or({
+    val inc-stmt = if (consume(")").bool()) then Nothing else {
       val node = Node(NdExprStmt, lhs = Just(expr())); expect(")")
       Just(node)
-    })
+    }
 
     Node(NdFor, token, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
   }
@@ -346,7 +344,7 @@ fun mul-or-div() : zerteilen node {
 }
 
 /*
-unary = ('+' | '-')? unary
+unary = ('+' | '-' | '*' | '&')? unary
       | primary
 */
 fun unary ( ) : zerteilen node {
@@ -354,6 +352,10 @@ fun unary ( ) : zerteilen node {
   then unary()
   elif (consume("-").bool())
   then Node(NdSub, lhs = Just(Node(NdNum, value = Just(0))), rhs = Just(unary()))
+  elif (consume("*").bool())
+  then Node(NdDeref, lhs = Just(unary()))
+  elif (consume("&").bool())
+  then Node(NdAddr, lhs = Just(unary()))
   else primary()
 }
 
