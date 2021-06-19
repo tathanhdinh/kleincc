@@ -1,111 +1,8 @@
 module parse
 
+import kleincc
 import tokenize
-
-// Local variable
-public struct variable {
-  name : string
-  offset : maybe<int> = Nothing
-}
-
-// AST node
-public type node-kind {
-  NdAdd       // +
-  NdSub       // -
-  NdMul       // *
-  NdDiv       // /
-  NdEq        // ==
-  NdNe        // !=
-  NdLt        // <
-  NdLe        // <=
-  NdAssign    // =
-  NdAddr      // unary &
-  NdDeref     // unary *
-  NdReturn    // "return"
-  NdIf        // "if"
-  NdWhile     // "while"
-  NdFor       // "for"
-  NdBlock     // { ... }
-  NdFunCall   // function call
-  NdExprStmt  // expression statement
-  NdVar       // variable
-  NdNum       // Integer
-}
-
-// AST node type.
-public struct node {
-  kind : node-kind
-  token : token = unsafe-total { (!last-consumed-token).unjust() }
-
-  lhs : maybe<node> = Nothing
-  rhs : maybe<node> = Nothing
-
-  // "if", "while" or "for"
-  wenn : maybe<node> = Nothing                // condition expression
-  dann : maybe<node> = Nothing                // then statement
-  sonst : maybe<node> = Nothing               // else statement
-  init : maybe<node> = Nothing                // initial statement
-  inc : maybe<node> = Nothing                 // increment statement
-
-  body: maybe<list<node>> = Nothing           // statement block
-
-  fcname : maybe<string> = Nothing            // function call
-  fcargs : maybe<list<node>> = Nothing        // function call arguments (I want to distinguish
-                                              // Nothing from Nil: Nothing is used when the node
-                                              // is not a function call, Nil is used when the node
-                                              // is a function call, but with no argument)
-
-  variable : maybe<variable> = Nothing        // used if kind is NdVar
-  value : maybe<int> = Nothing                // used if kind is NdNum
-}
-
-// For debugging.
-public fun show( n : node, indent : int = 0) : <div, console> string {
-  val kind = match (n.kind) {
-    NdAdd -> "+"
-    NdSub -> "-"
-    NdMul -> "*"
-    NdDiv -> "/"
-    NdEq -> "=="
-    NdNe -> "!="
-    NdLt -> "<"
-    NdLe -> "<="
-    NdAssign -> "assignment"
-    NdAddr -> "address of"
-    NdDeref -> "dereference"
-    NdReturn -> "return keyword"
-    NdIf -> "if statement"
-    NdWhile -> "while statement"
-    NdFor -> "for statement"
-    NdBlock -> "block statement"
-    NdFunCall -> "function call"
-    NdExprStmt -> "expression statement"
-    NdVar -> "identifier"
-    NdNum -> "integer"
-  }
-
-  val linke-seite = match (n.lhs) {
-    Just(lhs) -> lhs.show(indent + " lhs : Node {".count())
-    _ -> "nothing"
-  }
-
-  val rechte-seite = match (n.rhs) {
-    Just(rhs) -> rhs.show(indent + " rhs : Node {".count())
-    _ -> "nothing"
-  }
-
-  val value = match (n.value) {
-    Just(v) -> v.show()
-    _ -> "nothing"
-  }
-
-  val indent-str = " ".repeat(indent + "Node { ".count())
-  val node-str = "Node { kind : " ++ kind ++ ",\n" ++
-    indent-str ++       "lhs : " ++ linke-seite ++ ",\n" ++
-    indent-str ++       "rhs : " ++ rechte-seite ++ ",\n" ++
-    indent-str ++       "value : " ++ value ++ " }"
-  node-str
-}
+import typen
 
 public struct funktion {
   name : string
@@ -129,9 +26,9 @@ fun find-variable( token : token ) : <read<global>> maybe<variable> {
   })
 }
 
-/*
- program = function*
- */
+/* ----------------------------------------------------------------------------
+  program = function*
+---------------------------------------------------------------------------- */
 public fun program( tokens : list<token> ) : zerteilen list<funktion> {
   remained-tokens := tokens
 
@@ -157,10 +54,10 @@ fun func-params() : zerteilen list<variable> {
   }
 }
 
-/*
-function = ident "(" params? ")" "{" stmt* "}"
-params   = ident ("," ident)*
-*/
+/* ----------------------------------------------------------------------------
+  function = ident "(" params? ")" "{" stmt* "}"
+  params   = ident ("," ident)*
+---------------------------------------------------------------------------- */
 fun eine-funktion() : zerteilen funktion {
   // reset local variables
   local-vars := Nil
@@ -177,15 +74,20 @@ fun eine-funktion() : zerteilen funktion {
   Funktion(name, params, stmts.reverse(), !local-vars)
 }
 
-/*
-stmt = "return" expr ";"
-     | "if" "(" expr ")" stmt ("else" stmt)?
-     | "while" "(" expr ")" stmt
-     | "for" "(" expr? ";" expr? ";" expr? ")" stmt
-     | "{" stmt* "}"
-     | expr ";"
-*/
-fun stmt() : <console, div, exn, read<global>, write<global>> node {
+fun stmt() : zerteilen node {
+  val node = untyped-stmt()
+  add-type(node)
+}
+
+/* ----------------------------------------------------------------------------
+  stmt = "return" expr ";"
+      | "if" "(" expr ")" stmt ("else" stmt)?
+      | "while" "(" expr ")" stmt
+      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+      | "{" stmt* "}"
+      | expr ";"
+---------------------------------------------------------------------------- */
+fun untyped-stmt() : zerteilen node {
   // "return" statement
   if (consume("return").bool()) {
     val node = Node(NdReturn, lhs = Just(expr()))
@@ -264,18 +166,18 @@ fun stmt() : <console, div, exn, read<global>, write<global>> node {
   }
 }
 
-/*
-expr = assign
-*/
+/* ----------------------------------------------------------------------------
+  expr = assign
+---------------------------------------------------------------------------- */
 fun expr( ) : zerteilen node {
   match (!remained-tokens) {
     Cons(_) -> assign()
   }
 }
 
-/*
-assign = equality ("=" assign)?
-*/
+/* ----------------------------------------------------------------------------
+  assign = equality ("=" assign)?
+---------------------------------------------------------------------------- */
 fun assign() : zerteilen node {
   val lhs = equality()
   if (consume("=").bool())
@@ -283,9 +185,9 @@ fun assign() : zerteilen node {
   else lhs
 }
 
-/*
-equality = relational ("==" relational | "!=" relational)
-*/
+/* ----------------------------------------------------------------------------
+  equality = relational ("==" relational | "!=" relational)
+---------------------------------------------------------------------------- */
 fun equality() : zerteilen node {
   fun parse( lhs ) {
     if (consume("==").bool())
@@ -297,9 +199,9 @@ fun equality() : zerteilen node {
   parse(relational())
 }
 
-/*
-relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
-*/
+/* ----------------------------------------------------------------------------
+  relational = add-or-sub ("<" add-or-sub | "<=" add-or-sub | ">" add | ">=" add)*
+---------------------------------------------------------------------------- */
 fun relational() : zerteilen node {
   fun parse( node ) : zerteilen node {
     if (consume("<").bool())
@@ -315,23 +217,62 @@ fun relational() : zerteilen node {
   parse(add-or-sub())
 }
 
-/*
-add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
-*/
+fun typed-add( lhs : node, rhs : node, token : token ) : zerteilen node {
+  val (typed-lhs, typed-rhs) = (add-type(lhs), add-type(rhs))
+  val linke-typ = typed-lhs.ty.unjust()
+  val rechte-typ = typed-rhs.ty.unjust()
+
+  // linke und sechte Seite sind Integer
+  if (is-integer(linke-typ) && is-integer(rechte-typ))
+  then Node(NdAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
+  // linke Seite ist ein Zeiger, sechte Seite ist eine Integer
+  elif (linke-typ.base.bool() && is-integer(rechte-typ))
+  then Node(NdPtrAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
+  // linke Seite ist ein Integer, sechte Seite ist ein Zeiger
+  elif (is-integer(linke-typ) && rechte-typ.base.bool())
+  then Node(NdPtrDiff, token, lhs = Just(typed-rhs), rhs = Just(typed-rhs))
+  // sonst
+  else error-token(token, "invalid operands")
+}
+
+fun typed-sub( lhs : node, rhs : node, token : token ) : zerteilen node {
+  val (typed-lhs, typed-rhs) = (add-type(lhs), add-type(rhs))
+  val linke-typ = typed-lhs.ty.unjust()
+  val rechte-typ = typed-rhs.ty.unjust()
+
+  // linke und sechte Seite sind Integern
+  if (is-integer(linke-typ) && is-integer(rechte-typ))
+  then Node(NdSub, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
+  // linke Seite est ein Zeiger, sechte Seite est ein Integer
+  elif (linke-typ.base.bool() && is-integer(rechte-typ))
+  then Node(NdPtrSub, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
+  // linke und sechte Seite sind Zeigern
+  elif (linke-typ.base.bool() && rechte-typ.base.bool())
+  then Node(NdPtrDiff, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
+  // sonst
+  else error-token(token, "invalid operands")
+}
+
+/* ----------------------------------------------------------------------------
+  add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
+---------------------------------------------------------------------------- */
 fun add-or-sub() : zerteilen node {
   fun parse ( lhs ) : zerteilen node {
-    if (consume("+").bool())
-    then parse(Node(NdAdd, lhs = Just(lhs), rhs = Just(mul-or-div())))
-    elif (consume("-").bool())
-    then parse(Node(NdSub, lhs = Just(lhs), rhs = Just(mul-or-div())))
-    else lhs
+    match (consume("+")) {
+      Just(token) -> parse(typed-add(lhs, mul-or-div(), token))
+
+      _ -> consume("-").maybe(
+        onNothing = lhs,
+        onJust = fn (token) { parse(typed-sub(lhs, mul-or-div(), token)) }
+      )
+    }
   }
   parse(mul-or-div())
 }
 
-/*
-mul-or-div = unary ('*' unary | '/' unary)
-*/
+/* ----------------------------------------------------------------------------
+  mul-or-div = unary ('*' unary | '/' unary)
+---------------------------------------------------------------------------- */
 fun mul-or-div() : zerteilen node {
   fun parse( lhs ) : zerteilen node {
     if (consume("*").bool())
@@ -343,10 +284,10 @@ fun mul-or-div() : zerteilen node {
   parse(unary())
 }
 
-/*
-unary = ('+' | '-' | '*' | '&')? unary
-      | primary
-*/
+/* ----------------------------------------------------------------------------
+  unary = ('+' | '-' | '*' | '&')? unary
+        | primary
+---------------------------------------------------------------------------- */
 fun unary ( ) : zerteilen node {
   if (consume("+").bool())
   then unary()
@@ -359,9 +300,9 @@ fun unary ( ) : zerteilen node {
   else primary()
 }
 
-/*
-func-args = "(" (assign (",", assign)*)? ")"
-*/
+/* ----------------------------------------------------------------------------
+  func-args = "(" (assign (",", assign)*)? ")"
+---------------------------------------------------------------------------- */
 fun func-args() : zerteilen list<node> {
   if (consume(")").bool())
   then Nil
@@ -375,9 +316,9 @@ fun func-args() : zerteilen list<node> {
   }
 }
 
-/*
+/* ----------------------------------------------------------------------------
 primary = '(' expr ')' | ident func-args? | num
-*/
+---------------------------------------------------------------------------- */
 fun primary() : zerteilen node {
   if (consume("(").bool())
   then {

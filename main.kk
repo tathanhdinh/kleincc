@@ -1,5 +1,6 @@
 import std/os/env
 
+import kleincc
 import tokenize
 import parse
 import codegen

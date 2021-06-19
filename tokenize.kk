@@ -1,43 +1,8 @@
 module tokenize
 
-// Token
-public type token-kind {
-  TokReserved     // keywords or punctuators
-  TokIdent        // identifiers
-  TokNumber       // integer literals
-  TokEof          // end-of-file markers
-}
-
-// Token type
-public struct token {
-  kind : token-kind
-  value : maybe<int> = Nothing
-  literal : maybe<sslice> = Nothing
-}
-
-public fun show( tok : token, indent : int = 0 ) : <console> string {
-  val kind = match (tok.kind) {
-    TokReserved -> "reserved"
-    TokIdent -> "identifier"
-    TokNumber -> "number"
-    TokEof -> "eof"
-  }
-
-  val value = tok.value.maybe(
-    onNothing = "nothing",
-    onJust = fn(n) { n.show() }
-  )
-
-  val literal = tok.literal.maybe(
-    onNothing = "nothing",
-    onJust = fn (s) { s.show() }
-  )
-
-  "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
-}
+import kleincc
 
 public noinline val remained-tokens = unsafe-total { ref(Nil) }
-public noinline val last-consumed-token = unsafe-total { ref(Nothing) }
 
 // Reports an error
 public fun error( msg : string ) : exn a {
@@ -54,7 +19,6 @@ public fun error-at( literal : sslice, msg : string ) : exn a {
 
 // Report an error with location information then exit.
 public fun error-token( token : token, msg : string ) : <console, exn> a {
-  println(token.show())
   match (token.literal) {
     Nothing -> error(msg)
     Just(ss) -> error-at(ss, msg)

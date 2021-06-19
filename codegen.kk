@@ -1,5 +1,6 @@
 module codegen
 
+import kleincc
 import parse
 import tokenize
 
@@ -228,39 +229,63 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
       gen(rhs)
 
       println(
-        "  pop rdi\n" ++ // rechte seite
-        "  pop rax"      // linke seite
+        "  pop rdi\n" ++ // rechte Seite
+        "  pop rax"      // linke Seite
       );
 
       match (kind) {
         NdAdd -> println(
           "  add rax, rdi"
         )
+
+        NdPtrAdd -> println(
+          "  imul rdi, 8\n" ++
+          "  add rax, rdi"
+        )
+
         NdSub -> println(
           "  sub rax, rdi"
         )
+
+        NdPtrSub -> println(
+          "  imul rdi, 8\n" ++
+          "  sub rax, rdi"
+        )
+
+        NdPtrDiff -> println(
+          "  sub rax, rdi\n" ++
+          "  cqo\n" ++
+          "  mov rdi, 8\n" ++
+          "  idiv rdi"
+        )
+
         NdMul -> println(
           "  imul rax, rdi"
         )
+
         NdDiv -> println(
           "  cqo\n" ++
           "  idiv rdi"
         )
+
         NdEq -> println(
           "  cmp rax, rdi\n" ++
           "  sete al\n" ++
           "  movzx rax, al"
         )
+
         NdNe -> println(
           "  cmp rax, rdi\n" ++
           "  setne al\n" ++
           "  movzx rax, al"
         )
+
         NdLt -> println(
           "  cmp rax, rdi\n" ++
           "  setl al\n" ++
           "  movzx rax, al"
         )
+
         NdLe -> println(
           "  cmp rax, rdi\n" ++
           "  setle al\n" ++
