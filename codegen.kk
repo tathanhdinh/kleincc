@@ -343,7 +343,7 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
     }
 
     // Push arguments to the stack
-    f.params.foreach-indexed(fn (i, v) {
+    f.params.reverse().foreach-indexed(fn (i, v) {
       println(
         "  mov [rbp - " ++ v.offset.unjust().show() ++ "], " ++ arg-reg[i].unjust()
       )

@@ -8,7 +8,7 @@ public struct funktion {
   name : string
   params : list<variable>
   nodes : list<node>
-  locals : list<variable>
+  locals : list<variable> = unsafe-total { !local-vars }
   stacksize : int = 0
 }
 
@@ -39,39 +39,86 @@ public fun program( tokens : list<token> ) : zerteilen list<funktion> {
   funktionen.reverse()
 }
 
+/* ----------------------------------------------------------------------------
+  typing = "int" "*"*
+---------------------------------------------------------------------------- */
+fun typing() : zerteilen typ {
+  expect("int")
+  var ty := Typ(TyInt)
+  while { consume("*").bool() } {
+    ty := Typ(TyPtr, Just(ty))
+  }
+  ty
+}
+
+fun func-param() : zerteilen variable {
+  val ty = typing()
+  val param = Variable(expect-ident().string(), ty = Just(ty))
+  param
+}
+
 fun func-params() : zerteilen list<variable> {
   if (consume(")").bool())
   then Nil
   else {
-    var params := [Variable(expect-ident().string())]
+    var params := [func-param()]
     while { !consume(")").bool() } {
       expect(",")
-      val param = Variable(expect-ident().string())
+      val param = func-param()
       params := Cons(param, params)
-      local-vars := Cons(param, !local-vars)
     }
+    local-vars := params
     params
   }
 }
 
 /* ----------------------------------------------------------------------------
-  function = ident "(" params? ")" "{" stmt* "}"
-  params   = ident ("," ident)*
+  function = typing ident "(" params? ")" "{" stmt* "}"
+  params   = param ("," param)*
+  param    = typing ident
 ---------------------------------------------------------------------------- */
 fun eine-funktion() : zerteilen funktion {
   // reset local variables
   local-vars := Nil
 
-  val name = expect-ident().string(); expect("(")
-  val params = func-params(); expect("{")
+  // parse function return type
+  typing()
 
+  // parse function parameters
+  val name = expect-ident().string()
+  expect("(")
+  val params = func-params()
+
+  // parse function body
+  expect("{")
   var stmts := Nil
   while { !consume("}").bool() } {
     stmts := Cons(stmt(), stmts)
   }
 
   defined-func-names := Cons(name, !defined-func-names)
-  Funktion(name, params, stmts.reverse(), !local-vars)
+  Funktion(name, params, stmts.reverse())
+}
+
+/* ----------------------------------------------------------------------------
+  declaration = typing ident ("=expr") ";"
+---------------------------------------------------------------------------- */
+fun declaration() : zerteilen node {
+  val ty = typing()
+  val variable = Variable(expect-ident().string(), ty = Just(ty))
+  local-vars := Cons(variable, !local-vars)
+
+  val token = (!last-consumed-token).unjust()
+  if (consume(";").bool())
+  then Node(NdNull, token)
+  else {
+    expect("=")
+    val lhs = Node(NdVar, token, variable = Just(variable))
+    val rhs = expr()
+    expect(";")
+    val node = Node(NdAssign, token, lhs = Just(lhs), rhs = Just(rhs))
+    Node(NdExprStmt, token, lhs = Just(node))
+  }
 }
 
 fun stmt() : zerteilen node {
@@ -81,88 +128,99 @@ fun stmt() : zerteilen node {
 
 /* ----------------------------------------------------------------------------
   stmt = "return" expr ";"
-      | "if" "(" expr ")" stmt ("else" stmt)?
-      | "while" "(" expr ")" stmt
-      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
-      | "{" stmt* "}"
-      | expr ";"
+       | "if" "(" expr ")" stmt ("else" stmt)?
+       | "while" "(" expr ")" stmt
+       | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+       | "{" stmt* "}"
+       | declaration
+       | expr ";"
 ---------------------------------------------------------------------------- */
 fun untyped-stmt() : zerteilen node {
-  // "return" statement
-  if (consume("return").bool()) {
-    val node = Node(NdReturn, lhs = Just(expr()))
-    expect(";")
-    node
-  }
-
-  // "if" statement
-  elif (consume("if").bool()) {
-    val token = (!last-consumed-token).unjust()
-
-    expect("(")
-    val cond-expr = expr()
-    expect(")")
-
-    val then-stmt = stmt()
-    val else-stmt = consume("else").map(fn (_) { stmt() })
-
-    Node(NdIf, token, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
-  }
-
-  // "while" statement
-  elif (consume("while").bool()) {
-    val token = (!last-consumed-token).unjust()
-
-    expect("(")
-    val cond-expr = expr()
-    expect(")")
-
-    Node(NdWhile, token, wenn = Just(cond-expr), dann = Just(stmt()))
-  }
-
-  // "for" statement
-  elif (consume("for").bool()) {
-    val token = (!last-consumed-token).unjust()
-
-    expect("(")
-
-    val init-stmt = if (consume(";").bool()) then Nothing else {
-      val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
-      Just(node)
-    }
-
-    val cond-expr = if (consume(";").bool()) then Nothing else {
-      val node = expr();
+  match (consume("return")) {
+    Just(token) -> {
+      val node = Node(NdReturn, token, lhs = Just(expr()))
       expect(";")
-      Just(node)
+      return node
     }
 
-    val inc-stmt = if (consume(")").bool()) then Nothing else {
-      val node = Node(NdExprStmt, lhs = Just(expr())); expect(")")
-      Just(node)
-    }
-
-    Node(NdFor, token, init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt()))
+    _ -> ()
   }
 
-  // parse block "{" ... "}" statement
-  elif (consume("{").bool()) {
-    val token = (!last-consumed-token).unjust()
+  match (consume("if")) {
+    Just(token) -> {
+      expect("(")
+      val cond-expr = expr()
+      expect(")")
 
-    var stmts := Nil
-    while { !consume("}").bool() } {
-      stmts := Cons(stmt(), stmts)
+      val then-stmt = stmt()
+      val else-stmt = consume("else").map(fn (_) { stmt() })
+
+      return Node(NdIf, token, wenn = Just(cond-expr), dann = Just(then-stmt), sonst = else-stmt)
     }
-    stmts := stmts.reverse()
 
-    Node(NdBlock, token, body = Just(stmts))
+    _ -> ()
   }
 
-  // parse expression
-  else {
-    val node = Node(NdExprStmt, lhs = Just(expr()));
-    expect(";")
-    node
+  match (consume("while")) {
+    Just(token) -> {
+      expect("(")
+      val cond-expr = expr()
+      expect(")")
+
+      return Node(NdWhile, token, wenn = Just(cond-expr), dann = Just(stmt()))
+    }
+
+    _ -> ()
+  }
+
+  match (consume("for")) {
+    Just(token) -> {
+      expect("(")
+
+      val init-stmt = if (consume(";").bool()) then Nothing else {
+        val node = Node(NdExprStmt, lhs = Just(expr())); expect(";")
+        Just(node)
+      }
+
+      val cond-expr = if (consume(";").bool()) then Nothing else {
+        val node = expr();
+        expect(";")
+        Just(node)
+      }
+
+      val inc-stmt = if (consume(")").bool()) then Nothing else {
+        val node = Node(NdExprStmt, lhs = Just(expr())); expect(")")
+        Just(node)
+      }
+
+      return Node(
+        NdFor, token,
+        init = init-stmt, wenn = cond-expr, inc = inc-stmt, dann = Just(stmt())
+      )
+    }
+
+    _ -> ()
+  }
+
+  match (consume("{")) {
+    Just(token) -> {
+      var stmts := Nil
+      while { !consume("}").bool() } {
+        stmts := Cons(stmt(), stmts)
+      }
+      stmts := stmts.reverse()
+
+      Node(NdBlock, token, body = Just(stmts))
+    }
+
+    _ -> {
+      if (peek("int").bool()) then declaration()
+      else {
+        val node = Node(NdExprStmt, lhs = Just(expr()))
+        expect(";")
+        node
+      }
+    }
   }
 }
 
@@ -340,12 +398,10 @@ fun primary() : zerteilen node {
         }
         // Variable
         else {
-          val a-var = try { find-variable(token).unjust } fn (_) {
-            val v = Variable(name = token.literal.unjust().string())
-            local-vars := Cons(v, !local-vars)
-            v
+          match (find-variable(token)) {
+            Just(a-var) -> Node(NdVar, variable = Just(a-var))
+            _ -> error-token(token, "undefined variable")
           }
-          Node(NdVar, variable = Just(a-var))
         }
       }
 

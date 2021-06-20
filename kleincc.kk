@@ -39,8 +39,9 @@ public fun show( tok : token, indent : int = 0 ) : <console> string {
 
 // Local variable.
 public struct variable {
-  name : string
-  offset : maybe<int> = Nothing
+  name : string                   // variable name
+  ty : maybe<typ> = Nothing       // type
+  offset : maybe<int> = Nothing   // offset from the base pointer
 }
 
 // AST node.
@@ -67,7 +68,8 @@ public type node-kind {
   NdFunCall   // function call
   NdExprStmt  // expression statement
   NdVar       // variable
-  NdNum       // Integer
+  NdNum       // integer
+  NdNull      // empty statement
 }
 
 public noinline val last-consumed-token = unsafe-total { ref(Nothing) }
@@ -125,6 +127,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdFunCall -> "function call"
     NdExprStmt -> "expression statement"
     NdVar -> "identifier"
+    NdNull -> "empty statement"
     NdNum -> "integer"
   }
 

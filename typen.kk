@@ -1,6 +1,7 @@
 module typen
 
 import kleincc
+import tokenize
 
 public fun is-integer( ty : typ ) {
   match (ty.kind) {
@@ -9,7 +10,7 @@ public fun is-integer( ty : typ ) {
   }
 }
 
-public fun add-type( node : node ) : <div, exn> node {
+public fun add-type( node : node ) : <console, div, exn> node {
   if (node.ty.bool()) then return node
 
   // typisieren
@@ -34,10 +35,11 @@ public fun add-type( node : node ) : <div, exn> node {
     NdPtrAdd -> typed-lhs.unjust().ty.unjust()
     NdPtrSub -> typed-lhs.unjust().ty.unjust()
     NdAssign -> typed-lhs.unjust().ty.unjust()
+    NdVar -> node.variable.unjust().ty.unjust()
     NdAddr -> Typ(TyPtr, typed-lhs.unjust().ty)
     NdDeref -> match (typed-lhs.unjust().ty.unjust()) {
       Typ(TyPtr, base) -> base.unjust()
-      _ -> Typ(TyInt)
+      _ -> error-token(node.token, "invalid pointer dereference")
     }
     _ -> Typ(TyInt)
   }

@@ -47,20 +47,40 @@ public fun consume( op : string ) : <console> maybe<token> {
   }
 }
 
-// Ensure that the current token is TokIdent.
-public fun expect-ident() : <console, exn> sslice {
+// Return true if the current token matches `op`.
+public fun peek( op : string ) : <console> maybe<token> {
+  match (!remained-tokens) {
+    Cons(token) -> {
+      match (token) {
+        Token(TokReserved, literal = Just(literal)) -> {
+          if (op == literal.string()) then Just(token)
+          else Nothing
+        }
+
+        _ -> Nothing
+      }
+    }
+
+    _ -> Nothing
+  }
+}
+
+// Consume the current token if it is an identifier.
+public fun consume-ident() : <console> maybe<token> {
   match (!remained-tokens) {
     Cons(token, tokens) -> {
       match (token) {
-        Token(TokIdent, literal = Just(ident)) -> {
+        Token(TokIdent) -> {
           last-consumed-token := Just(token)
           remained-tokens := tokens
-          ident
+          Just(token)
         }
 
-        _ -> error-token(token, "expected an identifier")
+        _ -> Nothing
       }
     }
+
+    _ -> Nothing
   }
 }
 
@@ -69,14 +89,10 @@ public fun expect( op : string ) : <console, exn> () {
   val msg = "expected " ++ op
   match (!remained-tokens) {
     Cons(token, tokens) -> {
-      match (token) {
-        Token(TokReserved, literal = Just(literal)) -> {
-          if (op == literal.string())
-          then {
-            last-consumed-token := Just(token)
-            remained-tokens := tokens
-          }
-          else error-token(token, msg)
+      match (peek(op)) {
+        Just(_) -> {
+          last-consumed-token := Just(token)
+          remained-tokens := tokens
         }
 
         _ -> error-token(token, msg)
@@ -102,18 +118,18 @@ public fun expect-number() : <console, exn> int {
   }
 }
 
-// Consume the current token if it is an identifier
-public fun consume-ident() : <console, exn> maybe<token> {
+// Ensure that the current token is TokIdent.
+public fun expect-ident() : <console, exn> sslice {
   match (!remained-tokens) {
     Cons(token, tokens) -> {
       match (token) {
-        Token(TokIdent) -> {
+        Token(TokIdent, literal = Just(ident)) -> {
           last-consumed-token := Just(token)
           remained-tokens := tokens
-          Just(token)
+          ident
         }
 
-        _ -> Nothing
+        _ -> error-token(token, "expected an identifier")
       }
     }
   }
@@ -173,7 +189,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with-reserved( slice : sslice ) {
-    val keywords = ["return", "if", "else", "while", "for"]
+    val keywords = ["return", "if", "else", "while", "for", "int"]
     val maybe-keyword = keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) })
 
     if (maybe-keyword.bool())
