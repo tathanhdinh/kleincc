@@ -25,10 +25,21 @@ fun main() : <console, div, ndet, read<global>, write<global>> int {
     val programm = {
       val prog = parse/program(tokens)
       prog.map(fn (fk) {
+        fun compute-offset( vars : list<variable>, init : int = 0) {
+          match (vars) {
+            Cons(h-var, tl-vars) -> {
+              val offset = init + h-var.ty.unjust().size
+              Cons(h-var(offset = Just(offset)), compute-offset(tl-vars, offset))
+            }
+
+            _ -> Nil
+          }
+        }
+
         fk(
-          stacksize = fk.locals.length() * 8,
-          locals = fk.locals.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) }),
-          params = fk.params.map-indexed(fn (i, v) { v(offset = Just((i + 1) * 8)) })
+          stacksize = fk.locals.foldl(0, fn (i, v) { i + v.ty.unjust.size() }),
+          locals = fk.locals.compute-offset(),
+          params = fk.params.compute-offset()
         )
       })
     }

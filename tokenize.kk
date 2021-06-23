@@ -218,7 +218,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   fun is-punct( c ) {
     c == '+' || c == '-' || c == '*' || c == '/' || c == '(' || c == ')' ||
       c == '<' || c == '>' || c == '=' || c == '{' || c == '}' || c == ';' ||
-      c == ',' || c == '&'
+      c == ',' || c == '&' || c == '[' || c == ']'
   }
 
   fun starts-with-number( slice ) {

@@ -40,21 +40,33 @@ public fun program( tokens : list<token> ) : zerteilen list<funktion> {
 }
 
 /* ----------------------------------------------------------------------------
-  typing = "int" "*"*
+  base-type = "int" "*"*
 ---------------------------------------------------------------------------- */
-fun typing() : zerteilen typ {
+fun base-type() {
   expect("int")
   var ty := Typ(TyInt)
   while { consume("*").bool() } {
-    ty := Typ(TyPtr, Just(ty))
+    ty := Typ(TyPtr, base = Just(ty))
   }
   ty
 }
 
+fun type-suffix( base : typ ) : zerteilen typ {
+  if (consume("[").bool()) then {
+    val len = expect-number()
+    expect("]")
+    Typ(TyArray, base.size * len, Just(base), Just(len))
+  }
+  else base
+}
+
 fun func-param() : zerteilen variable {
-  val ty = typing()
-  val param = Variable(expect-ident().string(), ty = Just(ty))
-  param
+  val (ty, name) = {
+    val ty = base-type()
+    val name = expect-ident().string()
+    (type-suffix(ty), name)
+  }
+  Variable(name, ty = Just(ty))
 }
 
 fun func-params() : zerteilen list<variable> {
@@ -73,16 +85,16 @@ fun func-params() : zerteilen list<variable> {
 }
 
 /* ----------------------------------------------------------------------------
-  function = typing ident "(" params? ")" "{" stmt* "}"
+  function = base-type ident "(" params? ")" "{" stmt* "}"
   params   = param ("," param)*
-  param    = typing ident
+  param    = base-type ident
 ---------------------------------------------------------------------------- */
 fun eine-funktion() : zerteilen funktion {
   // reset local variables
   local-vars := Nil
 
   // parse function return type
-  typing()
+  base-type()
 
   // parse function parameters
   val name = expect-ident().string()
@@ -101,14 +113,17 @@ fun eine-funktion() : zerteilen funktion {
 }
 
 /* ----------------------------------------------------------------------------
-  declaration = typing ident ("=expr") ";"
+  declaration = base-type ident ("[" num "]")* ("=expr") ";"
 ---------------------------------------------------------------------------- */
-fun declaration() : zerteilen node {
-  val ty = typing()
-  val variable = Variable(expect-ident().string(), ty = Just(ty))
+fun declaration() {
+  val token = (!last-consumed-token).unjust()
+  var ty := base-type()
+  val name = expect-ident().string()
+  ty := type-suffix(ty)
+
+  val variable = Variable(name, ty = Just(ty))
   local-vars := Cons(variable, !local-vars)
 
-  val token = (!last-consumed-token).unjust()
   if (consume(";").bool())
   then Node(NdNull, token)
   else {
@@ -135,7 +150,7 @@ fun stmt() : zerteilen node {
        | declaration
        | expr ";"
 ---------------------------------------------------------------------------- */
-fun untyped-stmt() : zerteilen node {
+fun untyped-stmt() {
   match (consume("return")) {
     Just(token) -> {
       val node = Node(NdReturn, token, lhs = Just(expr()))
@@ -227,7 +242,7 @@ fun untyped-stmt() : zerteilen node {
 /* ----------------------------------------------------------------------------
   expr = assign
 ---------------------------------------------------------------------------- */
-fun expr( ) : zerteilen node {
+fun expr( ) {
   match (!remained-tokens) {
     Cons(_) -> assign()
   }
@@ -280,13 +295,13 @@ fun typed-add( lhs : node, rhs : node, token : token ) : zerteilen node {
   val linke-typ = typed-lhs.ty.unjust()
   val rechte-typ = typed-rhs.ty.unjust()
 
-  // linke und sechte Seite sind Integer
+  // linke und rechte Seite sind Integer
   if (is-integer(linke-typ) && is-integer(rechte-typ))
   then Node(NdAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
-  // linke Seite ist ein Zeiger, sechte Seite ist eine Integer
+  // linke Seite ist ein Zeiger, rechte Seite ist eine Integer
   elif (linke-typ.base.bool() && is-integer(rechte-typ))
   then Node(NdPtrAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
-  // linke Seite ist ein Integer, sechte Seite ist ein Zeiger
+  // linke Seite ist eine Integer, rechte Seite ist ein Zeiger
   elif (is-integer(linke-typ) && rechte-typ.base.bool())
   then Node(NdPtrDiff, token, lhs = Just(typed-rhs), rhs = Just(typed-rhs))
   // sonst
@@ -295,17 +310,17 @@ fun typed-add( lhs : node, rhs : node, token : token ) : zerteilen node {
 
 fun typed-sub( lhs : node, rhs : node, token : token ) : zerteilen node {
   val (typed-lhs, typed-rhs) = (add-type(lhs), add-type(rhs))
-  val linke-typ = typed-lhs.ty.unjust()
-  val rechte-typ = typed-rhs.ty.unjust()
+  val lhs-typ = typed-lhs.ty.unjust()
+  val rhs-typ = typed-rhs.ty.unjust()
 
-  // linke und sechte Seite sind Integern
-  if (is-integer(linke-typ) && is-integer(rechte-typ))
+  // linke und rechte Seite sind Integern
+  if (is-integer(lhs-typ) && is-integer(rhs-typ))
   then Node(NdSub, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
-  // linke Seite est ein Zeiger, sechte Seite est ein Integer
-  elif (linke-typ.base.bool() && is-integer(rechte-typ))
+  // linke Seite est ein Zeiger, rechte Seite est ein Integer
+  elif (lhs-typ.base.bool() && is-integer(rhs-typ))
   then Node(NdPtrSub, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
-  // linke und sechte Seite sind Zeigern
-  elif (linke-typ.base.bool() && rechte-typ.base.bool())
+  // linke und rechte Seite sind Zeigern
+  elif (lhs-typ.base.bool() && rhs-typ.base.bool())
   then Node(NdPtrDiff, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
   // sonst
   else error-token(token, "invalid operands")
@@ -369,7 +384,7 @@ fun func-args() : zerteilen list<node> {
     while { consume(",").bool() } {
       args := Cons(assign(), args)
     }
-    expect(")"); args := args.reverse()
+    expect(")")
     args
   }
 }
@@ -391,7 +406,7 @@ fun primary() : zerteilen node {
         then {
           val fcname = token.literal.unjust().string()
 
-          if (!(!used-func-names).find(fn (name) { name == fcname}).bool())
+          if (!(!used-func-names).find(fn (name) { name == fcname }).bool())
           then used-func-names := Cons(fcname, !used-func-names)
 
           Node(NdFunCall, token, fcname = Just(fcname), fcargs = Just(func-args()))

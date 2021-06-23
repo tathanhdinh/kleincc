@@ -4,8 +4,9 @@ import kleincc
 import tokenize
 
 public fun is-integer( ty : typ ) {
-  match (ty.kind) {
-    TyInt -> True
+  match (ty) {
+    Typ(TyInt) -> True
+
     _ -> False
   }
 }
@@ -31,16 +32,33 @@ public fun add-type( node : node ) : <console, div, exn> node {
     args.map(add-type)
   })
 
+  val lhs-ty = fn () { typed-lhs.unjust().ty.unjust() }
   val node-ty = match (node.kind) {
-    NdPtrAdd -> typed-lhs.unjust().ty.unjust()
-    NdPtrSub -> typed-lhs.unjust().ty.unjust()
-    NdAssign -> typed-lhs.unjust().ty.unjust()
+    NdPtrAdd -> lhs-ty()
+
+    NdPtrSub -> lhs-ty()
+
+    NdAssign -> lhs-ty()
+
     NdVar -> node.variable.unjust().ty.unjust()
-    NdAddr -> Typ(TyPtr, typed-lhs.unjust().ty)
-    NdDeref -> match (typed-lhs.unjust().ty.unjust()) {
-      Typ(TyPtr, base) -> base.unjust()
-      _ -> error-token(node.token, "invalid pointer dereference")
+
+    NdAddr -> {
+      val ty = lhs-ty()
+      match (ty) {
+        Typ(TyArray, _, base) -> Typ(TyPtr, base = base)
+
+        _ -> Typ(TyPtr, base = Just(ty))
+      }
     }
+
+    NdDeref -> {
+      match (lhs-ty().base) {
+        Just(ty) -> ty
+
+        _ -> error-token(node.token, "invalid pointer dereference")
+      }
+    }
+
     _ -> Typ(TyInt)
   }
 

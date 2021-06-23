@@ -10,7 +10,7 @@ private noinline val label-seq = unsafe-total { ref(0) }
 private noinline val func-name = unsafe-total { ref(Nothing) }
 
 // Push the given node address to the stack.
-fun gen-addr( node : node ) : <console, div, exn, read<global>, write<global>> () {
+fun gen-addr( node ) {
   match (node) {
     Node(NdVar, variable = Just(Variable(name = var-name))) -> {
       val v = (!local-vars).find(fn (v) { v.name == var-name }).unjust()
@@ -28,7 +28,15 @@ fun gen-addr( node : node ) : <console, div, exn, read<global>, write<global>> (
   }
 }
 
-fun load() : <console> () {
+fun gen-lvalue( node : node ) {
+  match (node) {
+    Node(_, token, Just(Typ(TyArray))) -> error-token(token, "not a lvalue")
+
+    _ -> gen-addr(node)
+  }
+}
+
+fun load() {
   println(
     "  pop rax\n" ++
     "  mov rax, [rax]\n" ++
@@ -36,7 +44,7 @@ fun load() : <console> () {
   )
 }
 
-fun store() : <console> () {
+fun store() {
   println(
     "  pop rdi\n" ++
     "  pop rax\n" ++
@@ -46,15 +54,15 @@ fun store() : <console> () {
 }
 
 // Generate code for a given node.
-fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
+fun gen( node : node ) {
   match (node) {
     Node(NdNum, value = Just(value)) ->
       println(
         "  push " ++ value.show()
       )
 
-    Node(NdExprStmt, lhs = Just(linke-seite)) -> {
-      gen(linke-seite)
+    Node(NdExprStmt, lhs = Just(s)) -> {
+      gen(s)
 
       // Discard the last stored result.
       println(
@@ -63,11 +71,16 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
     }
 
     Node(NdVar) -> {
-      gen-addr(node); load()
+      gen-addr(node);
+      match (node.ty) {
+        Just(Typ(TyArray)) -> {}
+
+        _ -> load()
+      }
     }
 
     Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen-addr(lhs); gen(rhs); store()
+      gen-lvalue(lhs); gen(rhs); store()
     }
 
     Node(NdAddr, lhs = Just(lhs)) -> {
@@ -75,7 +88,12 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
     }
 
     Node(NdDeref, lhs = Just(lhs)) -> {
-      gen(lhs); load()
+      gen(lhs)
+      match (node.ty) {
+        Just(Typ(TyArray)) -> {}
+
+        _ -> load()
+      }
     }
 
     Node(NdIf, wenn = Just(wenn), dann = Just(dann)) -> {
@@ -193,10 +211,9 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
     Node(NdFunCall, fcname = Just(fcname), fcargs = Just(fcargs)) -> {
       if (!fcargs.is-empty()) {
         fcargs.foreach(gen)
-        val args-idx-bound = fcargs.length() - 1
         fcargs.foreach-indexed(fn (i, _) {
           println(
-            "  pop " ++ arg-reg[args-idx-bound - i].unjust()
+            "  pop " ++ arg-reg[i].unjust()
           )
         })
       }
@@ -207,7 +224,6 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
         "  push rsp\n" ++
         "  push qword [rsp]\n" ++
         "  and rsp, -0x10\n" ++
-        // "extern " ++ fcname ++ "\n" ++
         "  call " ++ fcname ++ "\n" ++
         "  mov rsp, [rsp+0x8]\n" ++
         "  push rax"
@@ -224,7 +240,7 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
       )
     }
 
-    Node(kind, lhs = Just(lhs), rhs = Just(rhs)) -> {
+    Node(kind, ty = Just(typ), lhs = Just(lhs), rhs = Just(rhs)) -> {
       gen(lhs)
       gen(rhs)
 
@@ -239,7 +255,7 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
         )
 
         NdPtrAdd -> println(
-          "  imul rdi, 8\n" ++
+          "  imul rdi, " ++ typ.base.unjust().size.show() ++ "\n" ++
           "  add rax, rdi"
         )
 
@@ -248,14 +264,14 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
         )
 
         NdPtrSub -> println(
-          "  imul rdi, 8\n" ++
+          "  imul rdi, " ++ typ.base.unjust().size.show() ++ "\n" ++
           "  sub rax, rdi"
         )
 
         NdPtrDiff -> println(
           "  sub rax, rdi\n" ++
           "  cqo\n" ++
-          "  mov rdi, 8\n" ++
+          "  mov rdi, " ++ lhs.ty.unjust().base.unjust().size.show() ++ "\n" ++
           "  idiv rdi"
         )
 
@@ -291,18 +307,19 @@ fun gen( node : node ) : <console, div, exn, read<global>, write<global>> () {
           "  setle al\n" ++
           "  movzx rax, al"
         )
-        _ -> ()
+
+        _ -> {}
       }
 
       // Store the result
       println("  push rax")
     }
 
-    _ -> ()
+    _ -> {}
   }
 }
 
-public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, write<global>> () {
+public fun codegen( prog : list<funktion> ) {
   val extern-func-names = (!used-func-names).filter(fn (uname) {
     !(!defined-func-names).find(fn (dname) { dname == uname }).bool()
   })
@@ -312,11 +329,11 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
 
   println("section .smc alloc write exec align=16")
 
-  // extern names
+  // Extern names
   if (!extern-func-names.is-empty())
   then println("extern " ++ extern-func-names.join(","))
 
-  // constructor
+  // Constructor
   println(
     "global " ++ constructor-label ++ "\n" ++
     constructor-label ++ ":" ++ "\n" ++
@@ -362,7 +379,7 @@ public fun codegen( prog : list<funktion> ) : <console, div, exn, read<global>, 
     )
   })
 
-  // destructor
+  // Destructor
   // The result has been popped into rax,
   // so move it to rdi to make it the program exit code.
   // Then pass 60 to rax to invoke sys_exit

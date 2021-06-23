@@ -131,12 +131,17 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdNum -> "integer"
   }
 
-  val linke-seite = match (n.lhs) {
+  val type-str = match (n.ty) {
+    Just(ty) -> ty.show()
+    _ -> "nothing"
+  }
+
+  val lhs-str = match (n.lhs) {
     Just(lhs) -> lhs.show(indent + " lhs : Node {".count())
     _ -> "nothing"
   }
 
-  val rechte-seite = match (n.rhs) {
+  val rhs-str = match (n.rhs) {
     Just(rhs) -> rhs.show(indent + " rhs : Node {".count())
     _ -> "nothing"
   }
@@ -148,8 +153,9 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 
   val indent-str = " ".repeat(indent + "Node { ".count())
   val node-str = "Node { kind : " ++ kind ++ ",\n" ++
-    indent-str ++       "lhs : " ++ linke-seite ++ ",\n" ++
-    indent-str ++       "rhs : " ++ rechte-seite ++ ",\n" ++
+    indent-str ++        "type : " ++ type-str ++ ",\n" ++
+    indent-str ++       "lhs : " ++ lhs-str ++ ",\n" ++
+    indent-str ++       "rhs : " ++ rhs-str ++ ",\n" ++
     indent-str ++       "value : " ++ value ++ " }"
   node-str
 }
@@ -157,9 +163,31 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 public type typ-art {
   TyInt
   TyPtr
+  TyArray
 }
 
 public struct typ {
-  kind : typ-art
+  art : typ-art
+  size : int = 8
   base : maybe<typ> = Nothing
+  array-length : maybe<int> = Nothing
+}
+
+// For debugging.
+fun show ( ty : typ ) : <div, console> string {
+  val Typ(art, size, base) = ty
+
+  val art-str = match (art) {
+    TyInt -> "integer"
+    TyPtr -> "pointer"
+    TyArray -> "array"
+  }
+
+  val base-str = match (base) {
+    Just(base-ty) -> base-ty.show()
+    _ -> "nothing"
+  }
+
+  "Type { kind : " ++ art-str ++ ", size : " ++ size.show() ++
+    ", base : " ++ base-str ++ " }"
 }
