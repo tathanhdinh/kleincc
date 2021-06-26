@@ -55,7 +55,8 @@ fun type-suffix( base : typ ) : zerteilen typ {
   if (consume("[").bool()) then {
     val len = expect-number()
     expect("]")
-    Typ(TyArray, base.size * len, Just(base), Just(len))
+    val array-base = type-suffix(base)
+    Typ(TyArray, array-base.size * len, Just(array-base), Just(len))
   }
   else base
 }
