@@ -131,6 +131,8 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
     NdNum -> "integer"
   }
 
+  val token-str = n.token.show()
+
   val type-str = match (n.ty) {
     Just(ty) -> ty.show()
     _ -> "nothing"
@@ -153,7 +155,8 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 
   val indent-str = " ".repeat(indent + "Node { ".count())
   val node-str = "Node { kind : " ++ kind ++ ",\n" ++
-    indent-str ++        "type : " ++ type-str ++ ",\n" ++
+    indent-str ++       "token : " ++ token-str ++ ",\n" ++
+    indent-str ++       "type : " ++ type-str ++ ",\n" ++
     indent-str ++       "lhs : " ++ lhs-str ++ ",\n" ++
     indent-str ++       "rhs : " ++ rhs-str ++ ",\n" ++
     indent-str ++       "value : " ++ value ++ " }"

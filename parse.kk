@@ -293,18 +293,18 @@ fun relational() : zerteilen node {
 
 fun typed-add( lhs : node, rhs : node, token : token ) : zerteilen node {
   val (typed-lhs, typed-rhs) = (add-type(lhs), add-type(rhs))
-  val linke-typ = typed-lhs.ty.unjust()
-  val rechte-typ = typed-rhs.ty.unjust()
+  val lhs-typ = typed-lhs.ty.unjust()
+  val rhs-typ = typed-rhs.ty.unjust()
 
   // linke und rechte Seite sind Integer
-  if (is-integer(linke-typ) && is-integer(rechte-typ))
+  if (is-integer(lhs-typ) && is-integer(rhs-typ))
   then Node(NdAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
   // linke Seite ist ein Zeiger, rechte Seite ist eine Integer
-  elif (linke-typ.base.bool() && is-integer(rechte-typ))
+  elif (lhs-typ.base.bool() && is-integer(rhs-typ))
   then Node(NdPtrAdd, token, lhs = Just(typed-lhs), rhs = Just(typed-rhs))
   // linke Seite ist eine Integer, rechte Seite ist ein Zeiger
-  elif (is-integer(linke-typ) && rechte-typ.base.bool())
-  then Node(NdPtrDiff, token, lhs = Just(typed-rhs), rhs = Just(typed-rhs))
+  elif (is-integer(lhs-typ) && rhs-typ.base.bool())
+  then Node(NdPtrAdd, token, lhs = Just(typed-rhs), rhs = Just(typed-lhs))
   // sonst
   else error-token(token, "invalid operands")
 }
@@ -331,7 +331,7 @@ fun typed-sub( lhs : node, rhs : node, token : token ) : zerteilen node {
   add-or-sub = mul-or-div ("+" mul-or-div | "-" mul-or-div)*
 ---------------------------------------------------------------------------- */
 fun add-or-sub() : zerteilen node {
-  fun parse ( lhs ) : zerteilen node {
+  fun parse( lhs ) : zerteilen node {
     match (consume("+")) {
       Just(token) -> parse(typed-add(lhs, mul-or-div(), token))
 
@@ -360,9 +360,9 @@ fun mul-or-div() : zerteilen node {
 
 /* ----------------------------------------------------------------------------
   unary = ('+' | '-' | '*' | '&')? unary
-        | primary
+        | postfix
 ---------------------------------------------------------------------------- */
-fun unary ( ) : zerteilen node {
+fun unary() : zerteilen node {
   if (consume("+").bool())
   then unary()
   elif (consume("-").bool())
@@ -371,8 +371,28 @@ fun unary ( ) : zerteilen node {
   then Node(NdDeref, lhs = Just(unary()))
   elif (consume("&").bool())
   then Node(NdAddr, lhs = Just(unary()))
-  else primary()
+  else nachsilbe()
 }
+
+/* ----------------------------------------------------------------------------
+  postfix = primary ("[" expr "]")*
+---------------------------------------------------------------------------- */
+fun nachsilbe() {
+  fun parse( node : node ) {
+    match (consume("[")) {
+      Just(token) -> {
+        // x[y] is short for *(x + y) or *(y + x)
+        val lhs = typed-add(node, expr(), token)
+        expect("]")
+        parse(Node(NdDeref, token, lhs = Just(lhs)))
+      }
+
+      _ -> node
+    }
+  }
+  parse(primary())
+}
+
 
 /* ----------------------------------------------------------------------------
   func-args = "(" (assign (",", assign)*)? ")"
