@@ -189,7 +189,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with-reserved( slice : sslice ) {
-    val keywords = ["return", "if", "else", "while", "for", "int"]
+    val keywords = ["return", "if", "else", "while", "for", "int", "sizeof"]
     val maybe-keyword = keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) })
 
     if (maybe-keyword.bool())

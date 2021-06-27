@@ -309,7 +309,7 @@ fun typed-add( lhs : node, rhs : node, token : token ) : zerteilen node {
   else error-token(token, "invalid operands")
 }
 
-fun typed-sub( lhs : node, rhs : node, token : token ) : zerteilen node {
+fun typed-sub( lhs : node, rhs : node, token : token ) {
   val (typed-lhs, typed-rhs) = (add-type(lhs), add-type(rhs))
   val lhs-typ = typed-lhs.ty.unjust()
   val rhs-typ = typed-rhs.ty.unjust()
@@ -347,7 +347,7 @@ fun add-or-sub() : zerteilen node {
 /* ----------------------------------------------------------------------------
   mul-or-div = unary ('*' unary | '/' unary)
 ---------------------------------------------------------------------------- */
-fun mul-or-div() : zerteilen node {
+fun mul-or-div() {
   fun parse( lhs ) : zerteilen node {
     if (consume("*").bool())
     then parse(Node(NdMul, lhs = Just(lhs), rhs = Just(unary())))
@@ -362,7 +362,7 @@ fun mul-or-div() : zerteilen node {
   unary = ('+' | '-' | '*' | '&')? unary
         | postfix
 ---------------------------------------------------------------------------- */
-fun unary() : zerteilen node {
+fun unary() {
   if (consume("+").bool())
   then unary()
   elif (consume("-").bool())
@@ -413,11 +413,16 @@ fun func-args() : zerteilen list<node> {
 /* ----------------------------------------------------------------------------
 primary = '(' expr ')' | ident func-args? | num
 ---------------------------------------------------------------------------- */
-fun primary() : zerteilen node {
+fun primary() {
   if (consume("(").bool())
   then {
     val node = expr(); expect(")")
     node
+  }
+  elif (consume("sizeof").bool()) {
+    val token = (!last-consumed-token).unjust()
+    val node = add-type(unary())
+    Node(NdNum, token, value = node.ty.map(fn (ty) { ty.size }))
   }
   else {
     match (consume-ident()) {
