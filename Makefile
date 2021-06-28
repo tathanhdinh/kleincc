@@ -1,9 +1,11 @@
-OUTPUT_DIR=out
+.DEFAULT_GOAL := kleincc
 
-KOKA_FLAGS=-c -O2 --no-debug --target=c --cc=clang
+OUTPUT_DIR := out
 
-kleincc: main.kk
-	koka $? $(KOKA_FLAGS) --outdir=$(OUTPUT_DIR) --builddir=$(OUTPUT_DIR) --outname=$@
+KOKA_FLAGS := -c -O2 --no-debug --target=c --cc=clang
+
+kleincc: main.kk tokenize.kk parse.kk typen.kk codegen.kk kleincc.kk
+	koka $< $(KOKA_FLAGS) --outdir=$(OUTPUT_DIR) --builddir=$(OUTPUT_DIR) --outname=$@
 
 test: kleincc
 	./test.sh

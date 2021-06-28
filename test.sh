@@ -170,4 +170,6 @@ assert 9 'int main() { int x[3][4]; return sizeof(**x) + 1; }'
 assert 9 'int main() { int x[3][4]; return sizeof **x + 1; }'
 assert 8 'int main() { int x[3][4]; return sizeof(**x + 1); }'
 
+assert 55 '  int main() { return fib(9); } int fib(int x) { if (x<=1) return 1; return fib(x-1) + fib(x-2); }'
+
 echo ok
