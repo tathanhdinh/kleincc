@@ -11,7 +11,7 @@ public fun is-integer( ty : typ ) {
   }
 }
 
-public fun add-type( node : node ) : <console, div, exn> node {
+public fun add-type( node : node ) {
   if (node.ty.bool()) then return node
 
   // typisieren
@@ -40,7 +40,15 @@ public fun add-type( node : node ) : <console, div, exn> node {
 
     NdAssign -> lhs-ty()
 
-    NdVar -> node.variable.unjust().ty.unjust()
+    NdVar -> {
+
+      // val node-var = node.variable.unjust()
+      // val node-var-deref : variable = !node-var
+      // node-var.ty.unjust()
+
+      // node-var-deref.ty.unjust()
+      (!node.variable.unjust()).ty.unjust()
+    }
 
     NdAddr -> {
       val ty = lhs-ty()

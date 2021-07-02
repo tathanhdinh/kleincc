@@ -9,18 +9,39 @@ private val arg-reg = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 private noinline val label-seq = unsafe-total { ref(0) }
 private noinline val func-name = unsafe-total { ref(Nothing) }
 
+fun asm-directive( dirv : list<string> ) {
+  if (!dirv.is-empty()) then {
+    println(dirv.join("\n"))
+  }
+}
+
+fun asm-instruction( code : list<string> ) {
+  if (!code.is-empty()) then {
+    val aligned-code = code.map(fn (c) { "  " ++ c })
+    println(aligned-code.join("\n"))
+  }
+}
+
 // Push the given node address to the stack.
 fun gen-addr( node ) {
   match (node) {
-    Node(NdVar, variable = Just(Variable(name = var-name))) -> {
-      val v = (!local-vars).find(fn (v) { v.name == var-name }).unjust()
-      println(
-        "  lea rax, [rbp - " ++ v.offset.unjust().show() ++ "]\n" ++
-        "  push rax"
-      )
+    Node(NdVar, variable = Just(rv)) -> {
+      val v = !rv
+      if (v.is-local) then {
+        asm-instruction([
+          "lea rax, [rbp - " ++ v.offset.unjust().show() ++ "]",
+          "push rax"
+        ])
+      }
+      else {
+        asm-instruction([
+          "lea rax, [" ++ v.name ++"]",
+          "push rax"
+        ])
+      }
     }
 
-    Node(NdDeref, lhs = Just(lhs)) ->{
+    Node(NdDeref, lhs = Just(lhs)) -> {
       gen(lhs)
     }
 
@@ -37,20 +58,20 @@ fun gen-lvalue( node : node ) {
 }
 
 fun load() {
-  println(
-    "  pop rax\n" ++
-    "  mov rax, [rax]\n" ++
-    "  push rax"
-  )
+  asm-instruction([
+    "pop rax",
+    "mov rax, [rax]",
+    "push rax"
+  ])
 }
 
 fun store() {
-  println(
-    "  pop rdi\n" ++
-    "  pop rax\n" ++
-    "  mov [rax], rdi\n" ++
-    "  push rdi"
-  )
+  asm-instruction([
+    "pop rdi",
+    "pop rax",
+    "mov [rax], rdi",
+    "push rdi"
+  ])
 }
 
 // Generate code for a given node.
@@ -73,7 +94,7 @@ fun gen( node : node ) {
     Node(NdVar) -> {
       gen-addr(node);
       match (node.ty) {
-        Just(Typ(TyArray)) -> {}
+        Just(Typ(TyArray)) -> ()
 
         _ -> load()
       }
@@ -90,7 +111,7 @@ fun gen( node : node ) {
     Node(NdDeref, lhs = Just(lhs)) -> {
       gen(lhs)
       match (node.ty) {
-        Just(Typ(TyArray)) -> {}
+        Just(Typ(TyArray)) -> ()
 
         _ -> load()
       }
@@ -308,41 +329,76 @@ fun gen( node : node ) {
           "  movzx rax, al"
         )
 
-        _ -> {}
+        _ -> ()
       }
 
       // Store the result
       println("  push rax")
     }
 
-    _ -> {}
+    _ -> ()
   }
 }
 
-public fun codegen( prog : list<funktion> ) {
+fun emit-data( prog : programm ) {
+  if (prog.globals.is-empty()) then return ()
+
+  asm-directive([
+    "section .data"
+  ])
+
+  prog.globals.foreach(fn (rv) {
+    val v = !rv
+    asm-directive([
+      v.name ++ ":"
+    ])
+    asm-instruction([
+      "db " ++ v.ty.unjust().size.show() ++ " dup (0)"
+    ])
+  })
+}
+
+fun emit-text( prog : programm ) {
+  asm-directive([
+    "section .text"
+  ])
+
+  // External names
   val extern-func-names = (!used-func-names).filter(fn (uname) {
     !(!defined-func-names).find(fn (dname) { dname == uname }).bool()
   })
+  if (!extern-func-names.is-empty())
+  then asm-directive([
+    "extern " ++ extern-func-names.join(", ")
+  ])
 
+  // Constructor and destructor
   val constructor-label = "start"
   val destructor-label = "fini"
 
-  println("section .smc alloc write exec align=16")
+  // Constructor: push destructor's address so that it will be called by the last return,
+  // then jump to main
+  asm-directive([
+    "global " ++ constructor-label,
+    constructor-label ++ ":"
+  ])
+  asm-instruction([
+    "lea rax, [" ++ destructor-label ++ "]",
+    "push rax",
+    "jmp main"
+  ])
 
-  // Extern names
-  if (!extern-func-names.is-empty())
-  then println("extern " ++ extern-func-names.join(","))
-
-  // Constructor
+  // Destructor: the final result has been popped into rax, so move it to rdi to make it
+  // the program exit code. Then pass 60 to rax to invoke sys_exit
   println(
-    "global " ++ constructor-label ++ "\n" ++
-    constructor-label ++ ":" ++ "\n" ++
-    "  lea rax, [rel " ++ destructor-label ++ "]\n" ++
-    "  push rax\n" ++
-    "  jmp main"
+    destructor-label ++ ":\n" ++
+    "  mov rdi, rax\n" ++
+    "  mov rax, 60\n" ++
+    "  syscall"
   )
 
-  prog.foreach(fn (f) {
+  // Code
+  prog.functions.foreach(fn (f) {
     println(
       f.name ++ ":"
     )
@@ -353,16 +409,16 @@ public fun codegen( prog : list<funktion> ) {
       "  push rbp\n" ++
       "  mov rbp, rsp"
     )
-    if (f.stacksize != 0) {
+    if (f.stack-size != 0) {
       println(
-        "  sub rsp, " ++ f.stacksize.show()
+        "  sub rsp, " ++ f.stack-size.show()
       )
     }
 
     // Push arguments to the stack
     f.params.reverse().foreach-indexed(fn (i, v) {
       println(
-        "  mov [rbp - " ++ v.offset.unjust().show() ++ "], " ++ arg-reg[i].unjust()
+        "  mov [rbp - " ++ (!v).offset.unjust().show() ++ "], " ++ arg-reg[i].unjust()
       )
     })
 
@@ -378,15 +434,12 @@ public fun codegen( prog : list<funktion> ) {
       "  ret"
     )
   })
+}
 
-  // Destructor
-  // The result has been popped into rax,
-  // so move it to rdi to make it the program exit code.
-  // Then pass 60 to rax to invoke sys_exit
-  println(
-    destructor-label ++ ":\n" ++
-    "  mov rdi, rax\n" ++
-    "  mov rax, 60\n" ++
-    "  syscall"
-  )
+public fun codegen( prog : programm ) {
+  asm-directive([
+    "default rel"
+  ])
+  emit-data(prog)
+  emit-text(prog)
 }

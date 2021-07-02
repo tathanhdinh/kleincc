@@ -5,7 +5,7 @@ import tokenize
 import parse
 import codegen
 
-fun main() : <console, div, ndet, read<global>, write<global>> int {
+fun main() {
   val input = match (get-argv()) {
     Cons(prog, args) -> {
       match (args) {
@@ -22,26 +22,19 @@ fun main() : <console, div, ndet, read<global>, write<global>> int {
   try {
     // Tokenize and parse.
     val tokens = tokenize/tokenize(input)
+
     val programm = {
       val prog = parse/program(tokens)
-      prog.map(fn (fk) {
-        fun compute-offset( vars : list<variable>, init : int = 0) {
-          match (vars) {
-            Cons(h-var, tl-vars) -> {
-              val offset = init + h-var.ty.unjust().size
-              Cons(h-var(offset = Just(offset)), compute-offset(tl-vars, offset))
-            }
-
-            _ -> Nil
-          }
-        }
-
-        fk(
-          stacksize = fk.locals.foldl(0, fn (i, v) { i + v.ty.unjust.size() }),
-          locals = fk.locals.compute-offset(),
-          params = fk.params.compute-offset()
-        )
+      val funktionen = prog.functions.map(fn (f) {
+        var offset := 0
+        f.locals.foreach(fn (rv) {
+          val v = !rv
+          offset := offset + v.ty.unjust().size
+          rv := v(offset = Just(offset))
+        })
+        f(stack-size = offset)
       })
+      prog(functions = funktionen)
     }
 
     // Traverse the AST to emit assembly.

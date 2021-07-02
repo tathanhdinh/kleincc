@@ -1,5 +1,9 @@
 module kleincc
 
+/* ==============================================================================================
+ Types, globals, etc.
+============================================================================================== */
+
 // Token
 public type token-kind {
   TokReserved     // keywords or punctuators
@@ -37,12 +41,16 @@ public fun show( tok : token, indent : int = 0 ) : <console> string {
   "Token { kind : " ++ kind ++ ", value : " ++ value ++ ", literal : " ++ literal ++ " }"
 }
 
-// Local variable.
+// Variable.
 public struct variable {
   name : string                   // variable name
   ty : maybe<typ> = Nothing       // type
-  offset : maybe<int> = Nothing   // offset from the base pointer
+  is-local : bool = True
+
+  offset : maybe<int> = Nothing   // for local variable: offset from the base pointer
 }
+
+public alias ref-variable = ref<global, variable>
 
 // AST node.
 public type node-kind {
@@ -98,7 +106,7 @@ public struct node {
                                                                     // is not a function call, Nil is used when the node
                                                                     // is a function call, but with no argument)
 
-  variable : maybe<variable> = Nothing                              // used if kind is NdVar
+  variable : maybe<ref-variable> = Nothing                          // used if kind is NdVar
   value : maybe<int> = Nothing                                      // used if kind is NdNum
 }
 

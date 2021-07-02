@@ -4,39 +4,72 @@ import kleincc
 import tokenize
 import typen
 
+/* ==============================================================================================
+  Types, globals, etc.
+============================================================================================== */
 public struct funktion {
   name : string
-  params : list<variable>
+  params : list<ref-variable>
   nodes : list<node>
-  locals : list<variable> = unsafe-total { !local-vars }
-  stacksize : int = 0
+  locals : list<ref-variable> = unsafe-total { !local-vars }
+  stack-size : int = 0
 }
 
-public noinline val local-vars : ref<global, list<variable>> = unsafe-total { ref(Nil) }
+public struct programm {
+  functions : list<funktion> = Nil
+  globals : list<ref-variable> = unsafe-total { !global-vars }
+}
+
+alias zerteilen = <console, div, exn, st<global>>
+
+public noinline val local-vars : ref<global, list<ref-variable>> = unsafe-total { ref(Nil) }
+public noinline val global-vars : ref<global, list<ref-variable>> = unsafe-total { ref(Nil) }
+
 public noinline val defined-func-names : ref<global, list<string>> = unsafe-total { ref(Nil) }
 public noinline val used-func-names : ref<global, list<string>> = unsafe-total { ref(Nil) }
 
-alias zerteilen = <console, div, exn, read<global>, write<global>>
+/* ==============================================================================================
+  Codes
+============================================================================================== */
 
-fun find-variable( token : token ) : <read<global>> maybe<variable> {
-  (!local-vars).find(fn (v) {
-    token.literal.maybe(
-      onNothing = False,
-      onJust = fn (l) { l.string() == v.name })
-  })
+fun find-variable( token : token ) : <read<global>, div> maybe<ref-variable> {
+  val look-at = fn (vars : list<ref-variable>) {
+    vars.find(fn (v) {
+      token.literal.maybe(
+        onNothing = False,
+        onJust = fn (l) { unsafe-total { l.string() == (!v).name } })
+    })
+  }
+
+  val found-var = look-at(!local-vars)
+  if (found-var.bool()) then found-var
+  else look-at(!global-vars)
+}
+
+// Determine if the next top-level item is a function or a global variable
+// by looking ahead input tokens
+fun is-function() {
+  val tokens = !remained-tokens
+  base-type()
+  val is-func = if (consume-ident().bool()) then consume("(").bool() else False
+  remained-tokens := tokens
+  is-func
 }
 
 /* ----------------------------------------------------------------------------
-  program = function*
+  program = (function | global-variable)*
 ---------------------------------------------------------------------------- */
-public fun program( tokens : list<token> ) : zerteilen list<funktion> {
+public fun program( tokens : list<token> ) : zerteilen programm {
   remained-tokens := tokens
 
   var funktionen := Nil
   while { !at-eof() } {
-    funktionen := Cons(eine-funktion(), funktionen)
+    if (is-function())
+    then funktionen := Cons(eine-funktion(), funktionen)
+    else global-variable()
   }
-  funktionen.reverse()
+
+  Programm(funktionen.reverse())
 }
 
 /* ----------------------------------------------------------------------------
@@ -51,7 +84,7 @@ fun base-type() {
   ty
 }
 
-fun type-suffix( base : typ ) : zerteilen typ {
+fun type-suffix( base : typ ) {
   if (consume("[").bool()) then {
     val len = expect-number()
     expect("]")
@@ -61,7 +94,7 @@ fun type-suffix( base : typ ) : zerteilen typ {
   else base
 }
 
-fun func-param() : zerteilen variable {
+fun func-param() {
   val (ty, name) = {
     val ty = base-type()
     val name = expect-ident().string()
@@ -70,14 +103,14 @@ fun func-param() : zerteilen variable {
   Variable(name, ty = Just(ty))
 }
 
-fun func-params() : zerteilen list<variable> {
+fun func-params() {
   if (consume(")").bool())
   then Nil
   else {
-    var params := [func-param()]
+    var params := [ref(func-param())]
     while { !consume(")").bool() } {
       expect(",")
-      val param = func-param()
+      val param = ref(func-param())
       params := Cons(param, params)
     }
     local-vars := params
@@ -90,7 +123,7 @@ fun func-params() : zerteilen list<variable> {
   params   = param ("," param)*
   param    = base-type ident
 ---------------------------------------------------------------------------- */
-fun eine-funktion() : zerteilen funktion {
+fun eine-funktion() {
   // reset local variables
   local-vars := Nil
 
@@ -103,14 +136,29 @@ fun eine-funktion() : zerteilen funktion {
   val params = func-params()
 
   // parse function body
-  expect("{")
-  var stmts := Nil
-  while { !consume("}").bool() } {
-    stmts := Cons(stmt(), stmts)
+  val nodes = {
+    expect("{")
+    var stmt-nodes := Nil
+    while { !consume("}").bool() } {
+      stmt-nodes := Cons(stmt(), stmt-nodes)
+    }
+    stmt-nodes.reverse()
   }
 
   defined-func-names := Cons(name, !defined-func-names)
-  Funktion(name, params, stmts.reverse())
+  Funktion(name, params, nodes)
+}
+
+/* ----------------------------------------------------------------------------
+  global-variable = base-type ident ("[" num "]")* ";"
+---------------------------------------------------------------------------- */
+fun global-variable() {
+  var ty := base-type()
+  val name = expect-ident().string()
+  ty := type-suffix(ty)
+  expect(";")
+  val new-var = ref(Variable(name, Just(ty), False))
+  global-vars := Cons(new-var, !global-vars)
 }
 
 /* ----------------------------------------------------------------------------
@@ -122,14 +170,14 @@ fun declaration() {
   val name = expect-ident().string()
   ty := type-suffix(ty)
 
-  val variable = Variable(name, ty = Just(ty))
-  local-vars := Cons(variable, !local-vars)
+  val new-var = ref(Variable(name, ty = Just(ty)))
+  local-vars := Cons(new-var, !local-vars)
 
   if (consume(";").bool())
   then Node(NdNull, token)
   else {
     expect("=")
-    val lhs = Node(NdVar, token, variable = Just(variable))
+    val lhs = Node(NdVar, token, variable = Just(new-var))
     val rhs = expr()
     expect(";")
     val node = Node(NdAssign, token, lhs = Just(lhs), rhs = Just(rhs))
