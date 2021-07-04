@@ -153,6 +153,10 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     input-head.advance(to-slice-distance)
   }
 
+  fun is-alpha-num-underscore( c : char ) {
+    c.is-alpha-num() || c == '_'
+  }
+
   fun starts-with( slice : sslice, pre : string ) {
     fun compare( s, p ) {
       match (s.next(), p.next()) {
@@ -182,14 +186,14 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     slice.starts-with(keyword).maybe(
       onNothing = Nothing,
       onJust = fn ((pre, suf)) {
-        suf.starts-with-char-predicate(fn (c) { !c.is-alpha-num() && c != '_' })
+        suf.starts-with-char-predicate(fn (c) { !c.is-alpha-num-underscore() })
            .map(fn (_) { (pre, suf) })
       }
     )
   }
 
   fun starts-with-reserved( slice : sslice ) {
-    val keywords = ["return", "if", "else", "while", "for", "int", "sizeof"]
+    val keywords = ["return", "if", "else", "while", "for", "int", "sizeof", "char"]
     val maybe-keyword = keywords.foreach-while(fn (kw) { slice.starts-with-keyword(kw) })
 
     if (maybe-keyword.bool())
@@ -202,7 +206,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
 
   fun starts-with-identifier( slice : sslice ) {
     fun parse( s, n ) {
-      s.starts-with-char-predicate(is-alpha-num).maybe(
+      s.starts-with-char-predicate(is-alpha-num-underscore).maybe(
         onNothing = n,
         onJust = fn ((_, pre)) { parse(pre, n + 1) }
       )

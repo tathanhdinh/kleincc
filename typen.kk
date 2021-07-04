@@ -7,6 +7,8 @@ public fun is-integer( ty : typ ) {
   match (ty) {
     Typ(TyInt) -> True
 
+    Typ(TyChar) -> True
+
     _ -> False
   }
 }
@@ -40,15 +42,7 @@ public fun add-type( node : node ) {
 
     NdAssign -> lhs-ty()
 
-    NdVar -> {
-
-      // val node-var = node.variable.unjust()
-      // val node-var-deref : variable = !node-var
-      // node-var.ty.unjust()
-
-      // node-var-deref.ty.unjust()
-      (!node.variable.unjust()).ty.unjust()
-    }
+    NdVar -> (!node.variable.unjust()).ty.unjust()
 
     NdAddr -> {
       val ty = lhs-ty()

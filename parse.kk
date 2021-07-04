@@ -73,11 +73,14 @@ public fun program( tokens : list<token> ) : zerteilen programm {
 }
 
 /* ----------------------------------------------------------------------------
-  base-type = "int" "*"*
+  base-type = ("char" | "int") "*"*
 ---------------------------------------------------------------------------- */
 fun base-type() {
-  expect("int")
-  var ty := Typ(TyInt)
+  var ty := if (consume("char").bool()) then Typ(TyChar, size = 1) else {
+    expect("int")
+    Typ(TyInt)
+  }
+
   while { consume("*").bool() } {
     ty := Typ(TyPtr, base = Just(ty))
   }
@@ -185,6 +188,11 @@ fun declaration() {
   }
 }
 
+fun is-typename() {
+  if (peek("char").bool()) then True
+  else peek("int").bool()
+}
+
 fun stmt() : zerteilen node {
   val node = untyped-stmt()
   add-type(node)
@@ -278,7 +286,7 @@ fun untyped-stmt() {
     }
 
     _ -> {
-      if (peek("int").bool()) then declaration()
+      if (is-typename()) then declaration()
       else {
         val node = Node(NdExprStmt, lhs = Just(expr()))
         expect(";")

@@ -4,7 +4,8 @@ import kleincc
 import parse
 import tokenize
 
-private val arg-reg = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
+private val arg-reg1 = ["dil", "sil", "dl", "cl", "r8b", "r9b"]
+private val arg-reg8 = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
 
 private noinline val label-seq = unsafe-total { ref(0) }
 private noinline val func-name = unsafe-total { ref(Nothing) }
@@ -57,19 +58,19 @@ fun gen-lvalue( node : node ) {
   }
 }
 
-fun load() {
+fun load( ty : typ ) {
   asm-instruction([
     "pop rax",
-    "mov rax, [rax]",
+    if (ty.size == 1) then "movsx rax, byte [rax]" else "mov rax, [rax]",
     "push rax"
   ])
 }
 
-fun store() {
+fun store( ty : typ ) {
   asm-instruction([
     "pop rdi",
     "pop rax",
-    "mov [rax], rdi",
+    if (ty.size == 1) then "mov [rax], dil" else "mov [rax], rdi",
     "push rdi"
   ])
 }
@@ -78,17 +79,17 @@ fun store() {
 fun gen( node : node ) {
   match (node) {
     Node(NdNum, value = Just(value)) ->
-      println(
-        "  push " ++ value.show()
-      )
+      asm-instruction([
+        "push " ++ value.show()
+      ])
 
     Node(NdExprStmt, lhs = Just(s)) -> {
       gen(s)
 
       // Discard the last stored result.
-      println(
-        "  add rsp, 8"
-      )
+      asm-instruction([
+        "add rsp, 8"
+      ])
     }
 
     Node(NdVar) -> {
@@ -96,12 +97,12 @@ fun gen( node : node ) {
       match (node.ty) {
         Just(Typ(TyArray)) -> ()
 
-        _ -> load()
+        Just(ty) -> load(ty)
       }
     }
 
-    Node(NdAssign, lhs = Just(lhs), rhs = Just(rhs)) -> {
-      gen-lvalue(lhs); gen(rhs); store()
+    Node(NdAssign, ty = Just(ty), lhs = Just(lhs), rhs = Just(rhs)) -> {
+      gen-lvalue(lhs); gen(rhs); store(ty)
     }
 
     Node(NdAddr, lhs = Just(lhs)) -> {
@@ -113,7 +114,7 @@ fun gen( node : node ) {
       match (node.ty) {
         Just(Typ(TyArray)) -> ()
 
-        _ -> load()
+        Just(ty) -> load(ty)
       }
     }
 
@@ -126,10 +127,10 @@ fun gen( node : node ) {
 
       // if condition
       gen(wenn)
-      println(
-        "  pop rax\n" ++
-        "  test rax, rax"
-      )
+      asm-instruction([
+        "pop rax\n",
+        "test rax, rax"
+      ])
 
       match (node.sonst) {
         Nothing -> {
@@ -234,7 +235,7 @@ fun gen( node : node ) {
         fcargs.foreach(gen)
         fcargs.foreach-indexed(fn (i, _) {
           println(
-            "  pop " ++ arg-reg[i].unjust()
+            "  pop " ++ arg-reg8[i].unjust()
           )
         })
       }
@@ -358,6 +359,20 @@ fun emit-data( prog : programm ) {
   })
 }
 
+fun load-arg( v : variable, idx : int ) {
+  asm-instruction([
+    match (v) {
+      Variable(ty = Just(Typ(TyChar)), offset = Just(offset)) -> {
+        "mov [rbp - " ++ offset.show() ++ "], " ++ arg-reg1[idx].unjust()
+      }
+
+      Variable(ty = Just(Typ(TyInt)), offset = Just(offset)) -> {
+        "mov [rbp - " ++ offset.show() ++ "], " ++ arg-reg8[idx].unjust()
+      }
+    }
+  ])
+}
+
 fun emit-text( prog : programm ) {
   asm-directive([
     "section .text"
@@ -390,12 +405,12 @@ fun emit-text( prog : programm ) {
 
   // Destructor: the final result has been popped into rax, so move it to rdi to make it
   // the program exit code. Then pass 60 to rax to invoke sys_exit
-  println(
-    destructor-label ++ ":\n" ++
-    "  mov rdi, rax\n" ++
-    "  mov rax, 60\n" ++
-    "  syscall"
-  )
+  asm-instruction([
+    destructor-label ++ ":",
+    "mov rdi, rax",
+    "mov rax, 60",
+    "syscall"
+  ])
 
   // Code
   prog.functions.foreach(fn (f) {
@@ -405,21 +420,19 @@ fun emit-text( prog : programm ) {
     func-name := Just(f.name)
 
     // Prologue
-    println(
-      "  push rbp\n" ++
-      "  mov rbp, rsp"
-    )
+    asm-instruction([
+      "push rbp",
+      "mov rbp, rsp"
+    ])
     if (f.stack-size != 0) {
-      println(
-        "  sub rsp, " ++ f.stack-size.show()
-      )
+      asm-instruction([
+        "sub rsp, " ++ f.stack-size.show()
+      ])
     }
 
     // Push arguments to the stack
-    f.params.reverse().foreach-indexed(fn (i, v) {
-      println(
-        "  mov [rbp - " ++ (!v).offset.unjust().show() ++ "], " ++ arg-reg[i].unjust()
-      )
+    f.params.reverse().foreach-indexed(fn (i, rv) {
+      load-arg(!rv, i)
     })
 
     // Emit code

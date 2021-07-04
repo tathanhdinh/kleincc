@@ -172,6 +172,7 @@ public fun show( n : node, indent : int = 0) : <div, console> string {
 }
 
 public type typ-art {
+  TyChar
   TyInt
   TyPtr
   TyArray
@@ -189,6 +190,7 @@ fun show ( ty : typ ) : <div, console> string {
   val Typ(art, size, base) = ty
 
   val art-str = match (art) {
+    TyChar -> "char"
     TyInt -> "integer"
     TyPtr -> "pointer"
     TyArray -> "array"
