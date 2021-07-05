@@ -20,7 +20,7 @@ public struct programm {
   globals : list<ref-variable> = unsafe-total { !global-vars }
 }
 
-alias zerteilen = <console, div, exn, st<global>>
+alias zerteilen = <console, div, exn, ndet, st<global>>
 
 public noinline val local-vars : ref<global, list<ref-variable>> = unsafe-total { ref(Nil) }
 public noinline val global-vars : ref<global, list<ref-variable>> = unsafe-total { ref(Nil) }
@@ -467,42 +467,73 @@ fun func-args() : zerteilen list<node> {
 }
 
 /* ----------------------------------------------------------------------------
-primary = '(' expr ')' | ident func-args? | num
+  primary = '(' expr ')' | "sizeof" unary | ident func-args? | str | num
+  args = "(" ident ("," ident)* ")"
 ---------------------------------------------------------------------------- */
 fun primary() {
   if (consume("(").bool())
   then {
     val node = expr(); expect(")")
-    node
+    return node
   }
-  elif (consume("sizeof").bool()) {
-    val token = (!last-consumed-token).unjust()
-    val node = add-type(unary())
-    Node(NdNum, token, value = node.ty.map(fn (ty) { ty.size }))
+
+  match (consume("sizeof")) {
+    Just(token) -> {
+      val node = add-type(unary())
+      return Node(NdNum, token, value = node.ty.map(fn (ty) { ty.size }))
+    }
+
+    _ -> ()
   }
-  else {
-    match (consume-ident()) {
-      Just(token) -> {
-        if (consume("(").bool())
-        // Function call
-        then {
-          val fcname = token.literal.unjust().string()
 
-          if (!(!used-func-names).find(fn (name) { name == fcname }).bool())
-          then used-func-names := Cons(fcname, !used-func-names)
+  match (consume-ident()) {
+    Just(token) -> {
+      if (consume("(").bool())
+      // Function call
+      then {
+        val fcname = token.literal.unjust().string()
 
-          Node(NdFunCall, token, fcname = Just(fcname), fcargs = Just(func-args()))
-        }
-        // Variable
-        else {
-          match (find-variable(token)) {
-            Just(a-var) -> Node(NdVar, variable = Just(a-var))
-            _ -> error-token(token, "undefined variable")
-          }
+        if (!(!used-func-names).find(fn (name) { name == fcname }).bool())
+        then used-func-names := Cons(fcname, !used-func-names)
+
+        return Node(NdFunCall, token, fcname = Just(fcname), fcargs = Just(func-args()))
+      }
+      // Variable
+      else {
+        match (find-variable(token)) {
+          Just(a-var) -> return Node(NdVar, variable = Just(a-var))
+
+          _ -> error-token(token, "undefined variable")
         }
       }
-
-      _ -> Node(NdNum, value = Just(expect-number()))
     }
+
+    _ -> ()
+  }
+
+  match (consume-string-literal()) {
+    Just(token) -> {
+      val ty = {
+        val base-ty = Typ(TyChar, 1)
+        val contents-len = token.contents.unjust().count() + 1
+        Typ(TyArray, base-ty.size * contents-len, Just(base-ty), Just(contents-len))
+      }
+
+      val name = ".L.data." ++ unique().show()
+
+      val str-var = ref(Variable(name, ty = Just(ty), is-local = False, contents = token.contents))
+      global-vars := Cons(str-var, !global-vars)
+
+      return Node(NdVar, token, variable = Just(str-var))
+    }
+
+    _ -> ()
+  }
+
+  val token = blicken()
+  match (token) {
+    Just(Token(TokNumber)) -> Node(NdNum, token.unjust(), value = Just(expect-number()))
+
+    _ -> error-token(token.unjust(), "expected expression")
   }
 }

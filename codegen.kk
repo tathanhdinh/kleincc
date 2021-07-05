@@ -324,11 +324,11 @@ fun gen( node : node ) {
           "  movzx rax, al"
         )
 
-        NdLe -> println(
-          "  cmp rax, rdi\n" ++
-          "  setle al\n" ++
-          "  movzx rax, al"
-        )
+        NdLe -> asm-instruction([
+          "cmp rax, rdi",
+          "setle al",
+          "movzx rax, al"
+        ])
 
         _ -> ()
       }
@@ -353,8 +353,13 @@ fun emit-data( prog : programm ) {
     asm-directive([
       v.name ++ ":"
     ])
+
     asm-instruction([
-      "db " ++ v.ty.unjust().size.show() ++ " dup (0)"
+      match (v.contents) {
+        Just(str) -> "db " ++ "'" ++ str ++ "', 0"
+
+        _ -> "db " ++ v.ty.unjust().size.show() ++ " dup (0)"
+      }
     ])
   })
 }

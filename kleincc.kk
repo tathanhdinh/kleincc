@@ -4,10 +4,11 @@ module kleincc
  Types, globals, etc.
 ============================================================================================== */
 
-// Token
+// Token.
 public type token-kind {
   TokReserved     // keywords or punctuators
   TokIdent        // identifiers
+  TokStr          // string literals
   TokNumber       // integer literals
   TokEof          // end-of-file markers
 }
@@ -15,8 +16,10 @@ public type token-kind {
 // Token type.
 public struct token {
   kind : token-kind
-  value : maybe<int> = Nothing
+  value : maybe<int> = Nothing            // value of the token, if kind is TkNum
   literal : maybe<sslice> = Nothing
+
+  contents : maybe<string> = Nothing      // string literal contents including '\0' terminal
 }
 
 // For debugging.
@@ -24,6 +27,7 @@ public fun show( tok : token, indent : int = 0 ) : <console> string {
   val kind = match (tok.kind) {
     TokReserved -> "reserved"
     TokIdent -> "identifier"
+    TokStr -> "string literal"
     TokNumber -> "number"
     TokEof -> "eof"
   }
@@ -47,7 +51,11 @@ public struct variable {
   ty : maybe<typ> = Nothing       // type
   is-local : bool = True
 
-  offset : maybe<int> = Nothing   // for local variable: offset from the base pointer
+  // local
+  offset : maybe<int> = Nothing   // offset from the base pointer
+
+  // global
+  contents : maybe<string> = Nothing
 }
 
 public alias ref-variable = ref<global, variable>

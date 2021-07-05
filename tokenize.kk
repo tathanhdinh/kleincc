@@ -21,8 +21,15 @@ public fun error-at( literal : sslice, msg : string ) : exn a {
 public fun error-token( token : token, msg : string ) : <console, exn> a {
   match (token.literal) {
     Nothing -> error(msg)
+
     Just(ss) -> error-at(ss, msg)
   }
+}
+
+fun consume-current( token, tokens ) : <write<global>> maybe<token> {
+  last-consumed-token := Just(token)
+  remained-tokens := tokens
+  Just(token)
 }
 
 // Consume the current token if it matches `op`.
@@ -33,9 +40,7 @@ public fun consume( op : string ) : <console> maybe<token> {
         Token(TokReserved, literal = Just(literal)) ->
           if (op == literal.string())
           then {
-            last-consumed-token := Just(token)
-            remained-tokens := tokens
-            Just((token))
+            consume-current(token, tokens)
           }
           else Nothing
 
@@ -65,15 +70,39 @@ public fun peek( op : string ) : <console> maybe<token> {
   }
 }
 
+// Peek a token if exists
+public fun blicken() : <console> maybe<token> {
+  match (!remained-tokens) {
+    Cons(token) -> Just(token)
+
+    _ -> Nothing
+  }
+}
+
 // Consume the current token if it is an identifier.
 public fun consume-ident() : <console> maybe<token> {
   match (!remained-tokens) {
     Cons(token, tokens) -> {
       match (token) {
         Token(TokIdent) -> {
-          last-consumed-token := Just(token)
-          remained-tokens := tokens
-          Just(token)
+          consume-current(token, tokens)
+        }
+
+        _ -> Nothing
+      }
+    }
+
+    _ -> Nothing
+  }
+}
+
+// Consume the current token if it is a string literal.
+public fun consume-string-literal() : <console> maybe<token> {
+  match (!remained-tokens) {
+    Cons(token, tokens) -> {
+      match (token) {
+        Token(TokStr) -> {
+          consume-current(token, tokens)
         }
 
         _ -> Nothing
@@ -91,8 +120,8 @@ public fun expect( op : string ) : <console, exn> () {
     Cons(token, tokens) -> {
       match (peek(op)) {
         Just(_) -> {
-          last-consumed-token := Just(token)
-          remained-tokens := tokens
+          consume-current(token, tokens)
+          ()
         }
 
         _ -> error-token(token, msg)
@@ -107,8 +136,7 @@ public fun expect-number() : <console, exn> int {
     Cons(token, tokens) -> {
       match (token) {
         Token(TokNumber, value = Just(num)) -> {
-          last-consumed-token := Just(token)
-          remained-tokens := tokens
+          consume-current(token, tokens)
           num
         }
 
@@ -124,8 +152,7 @@ public fun expect-ident() : <console, exn> sslice {
     Cons(token, tokens) -> {
       match (token) {
         Token(TokIdent, literal = Just(ident)) -> {
-          last-consumed-token := Just(token)
-          remained-tokens := tokens
+          consume-current(token, tokens)
           ident
         }
 
@@ -148,13 +175,7 @@ public fun at-eof() : bool {
 // Tokenize input and returns tokens
 public fun tokenize( input : string ) : <console, div, exn> list<token> {
   fun first-of-length( slice, n ) {
-    val input-head = input.first(n)
-    val to-slice-distance = slice.before().count()
-    input-head.advance(to-slice-distance)
-  }
-
-  fun is-alpha-num-underscore( c : char ) {
-    c.is-alpha-num() || c == '_'
+    input.first(n).advance(slice.before().count())
   }
 
   fun starts-with( slice : sslice, pre : string ) {
@@ -176,8 +197,44 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   fun starts-with-char-predicate( slice : sslice, pred : (char) -> bool) {
     slice.next().maybe(
       onNothing = Nothing,
+
       onJust = fn ((c, s)) {
         if (c.pred()) then Just((slice.first-of-length(1), s)) else Nothing
+      }
+    )
+  }
+
+  fun starts-with-string-literal( slice : sslice ) {
+    fun parse ( s, n ) {
+      match (s.next()) {
+        Just((c, sn)) -> {
+          if (c != '"') then parse(sn, n + 1)
+          else Just((slice.advance(1).first-of-length(n), sn))
+        }
+
+        _ -> Nothing
+      }
+
+      s.next().maybe(
+        onNothing = Nothing,
+
+        onJust = fn ((c, sn)) {
+          if (c != '"') then parse(sn, n + 1)
+          else Just((slice.advance(1).first-of-length(n), sn))
+        }
+      )
+    }
+
+    slice.next().maybe(
+      onNothing = Nothing,
+
+      onJust = fn ((c, ts)) {
+        if (c != '"') then Nothing
+        else {
+          val result = parse(ts, 0)
+          if (result.bool()) then result
+          else error-at(slice, "unclosed string literal")
+        }
       }
     )
   }
@@ -186,8 +243,14 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     slice.starts-with(keyword).maybe(
       onNothing = Nothing,
       onJust = fn ((pre, suf)) {
-        suf.starts-with-char-predicate(fn (c) { !c.is-alpha-num-underscore() })
-           .map(fn (_) { (pre, suf) })
+        suf.next().maybe(
+          onNothing = Just((pre, suf)),
+
+          onJust = fn ((c, _)) {
+            if (!c.is-alpha-num() && c != '_') then Just((pre, suf))
+            else Nothing
+          }
+        )
       }
     )
   }
@@ -205,18 +268,27 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
   }
 
   fun starts-with-identifier( slice : sslice ) {
-    fun parse( s, n ) {
-      s.starts-with-char-predicate(is-alpha-num-underscore).maybe(
-        onNothing = n,
-        onJust = fn ((_, pre)) { parse(pre, n + 1) }
-      )
+    fun parse ( s, n ) {
+      val get-ident = fn () { slice.first-of-length(n) }
+
+      match (s.next()) {
+        Nothing -> Just((get-ident(), s))
+
+        Just((c, ts)) -> {
+          if (c.is-alpha-num() || c == '_') then parse(ts, n + 1)
+          else Just((get-ident(), s))
+        }
+      }
     }
 
-    slice.starts-with-char-predicate(is-alpha).map(fn ((_, pre)) {
-      val ident-len = parse(pre, 1)
-      val ident = slice.first-of-length(ident-len)
-      (ident, ident.after())
-    })
+    slice.next().maybe(
+      onNothing = Nothing,
+
+      onJust = fn ((c, s)) {
+        if (c.is-alpha() || c == '_') then parse(s, 1)
+        else Nothing
+      }
+    )
   }
 
   fun is-punct( c ) {
@@ -229,6 +301,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     fun parse-number ( s, accum ) {
       s.next().maybe(
         onNothing = (s, accum),
+
         onJust = fn((c, ss)) {
           if (c.is-digit()) {
             val num = match (accum) { Just(n) -> n; _ -> 0 }
@@ -255,8 +328,25 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
     }
 
     // Skip white space characters.
-    match (slice.starts-with-char-predicate(is-white)) {
-      Just((_, s)) -> return tokenize-internal(s, tokens)
+    match (slice.next()) {
+      Just((c, s)) -> {
+        if (c.is-white()) then return tokenize-internal(s, tokens)
+        else ()
+      }
+
+      _ -> ()
+    }
+
+    // String literal.
+    match (slice.starts-with-string-literal()) {
+      Just((str, suf)) -> {
+        val str-tok = Token(
+          TokStr,
+          literal = Just(slice.first-of-length(slice.count() - suf.count())),
+          contents = Just(str.string())
+        )
+        return tokenize-internal(suf, Cons(str-tok, tokens))
+      }
 
       _ -> ()
     }
@@ -271,7 +361,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
       _ -> ()
     }
 
-    // Identifier
+    // Identifier.
     match (slice.starts-with-identifier()) {
       Just((ident, suf)) -> {
         val ident-tok = Token(TokIdent, literal = Just(ident))
@@ -281,7 +371,7 @@ public fun tokenize( input : string ) : <console, div, exn> list<token> {
       _ -> ()
     }
 
-    // Single-letter punctuators
+    // Single-letter punctuators.
     match (slice.starts-with-char-predicate(is-punct)) {
       Just((pre, suf)) -> {
         val punct-tok = Token(TokReserved, literal = Just(pre))
